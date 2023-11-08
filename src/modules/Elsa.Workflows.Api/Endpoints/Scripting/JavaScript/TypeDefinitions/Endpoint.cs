@@ -1,12 +1,11 @@
 using System.Text;
+using Elsa.Abstractions;
 using Elsa.Common.Models;
 using Elsa.JavaScript.TypeDefinitions.Contracts;
 using Elsa.JavaScript.TypeDefinitions.Models;
-using Elsa.Workflows.Management.Entities;
-using Elsa.Workflows.Runtime.Contracts;
-using FastEndpoints;
+using Elsa.Workflows.Core.Activities;
+using Elsa.Workflows.Management.Contracts;
 using JetBrains.Annotations;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Elsa.Workflows.Api.Endpoints.Scripting.JavaScript.TypeDefinitions;
 
@@ -14,22 +13,23 @@ namespace Elsa.Workflows.Api.Endpoints.Scripting.JavaScript.TypeDefinitions;
 /// Returns a TypeScript definition that is used by the Monaco editor to display intellisense for JavaScript expressions.
 /// </summary>
 [PublicAPI]
-internal class Get : Endpoint<Request>
+internal class Get : ElsaEndpoint<Request>
 {
     private readonly ITypeDefinitionService _typeDefinitionService;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IWorkflowDefinitionService _workflowDefinitionService;
 
     /// <inheritdoc />
-    public Get(ITypeDefinitionService typeDefinitionService, IServiceProvider serviceProvider)
+    public Get(ITypeDefinitionService typeDefinitionService, IWorkflowDefinitionService workflowDefinitionService)
     {
         _typeDefinitionService = typeDefinitionService;
-        _serviceProvider = serviceProvider;
+        _workflowDefinitionService = workflowDefinitionService;
     }
     
     /// <inheritdoc />
     public override void Configure()
     {
         Post("scripting/javascript/type-definitions/{workflowDefinitionId}");
+        ConfigurePermissions("read:*", "read:javascript-type-definitions");
     }
 
     /// <inheritdoc />
@@ -52,11 +52,14 @@ internal class Get : Endpoint<Request>
         await SendBytesAsync(data, fileName, "application/x-typescript", cancellation: cancellationToken);
     }
 
-    private async Task<WorkflowDefinition?> GetWorkflowDefinition(string workflowDefinitionId, CancellationToken cancellationToken)
+    private async Task<Workflow?> GetWorkflowDefinition(string workflowDefinitionId, CancellationToken cancellationToken)
     {
-        var workflowDefinitionService = _serviceProvider.GetService<IWorkflowDefinitionService>();
-        var workflowDefinition = workflowDefinitionService != null ? await workflowDefinitionService.FindAsync(workflowDefinitionId, VersionOptions.Latest, cancellationToken) : default;
-        return workflowDefinition;
+        var workflowDefinition = await _workflowDefinitionService.FindAsync(workflowDefinitionId, VersionOptions.Latest, cancellationToken);
+
+        if (workflowDefinition == null)
+            return null;
+
+        return await _workflowDefinitionService.MaterializeWorkflowAsync(workflowDefinition, cancellationToken);
     }
 }
 

@@ -1,6 +1,6 @@
 using Elsa.Common.Entities;
+using Elsa.Workflows.Core.Memory;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Management.Models;
 
 namespace Elsa.Workflows.Management.Entities;
 
@@ -20,14 +20,19 @@ public class WorkflowDefinition : VersionedEntity
     public string? Name { get; set; }
     
     /// <summary>
-    /// A short description of that the workflow is about.  
+    /// A short description of what the workflow is about.  
     /// </summary>
     public string? Description { get; set; }
 
     /// <summary>
+    /// The version of the tool that created this workflow.
+    /// </summary>
+    public Version? ToolVersion { get; set; }
+
+    /// <summary>
     /// A set of options for the workflow.
     /// </summary>
-    public WorkflowOptions? Options { get; set; }
+    public WorkflowOptions Options { get; set; } = new();
     
     /// <summary>
     /// A set of workflow variables that are accessible throughout the workflow.
@@ -55,6 +60,11 @@ public class WorkflowDefinition : VersionedEntity
     public IDictionary<string, object> CustomProperties { get; set; } = new Dictionary<string, object>();
 
     /// <summary>
+    /// The name of the workflow provider that created this workflow, if any.
+    /// </summary>
+    public string? ProviderName { get; set; }
+    
+    /// <summary>
     /// The name of the workflow materializer to interpret the <see cref="StringData"/> or <see cref="BinaryData"/>.
     /// </summary>
     public string MaterializerName { get; set; } = default!;
@@ -75,10 +85,10 @@ public class WorkflowDefinition : VersionedEntity
     public byte[]? BinaryData { get; set; }
 
     /// <summary>
-    /// An option to use the workflow as an activity in another workflow.
+    /// An option to use the workflow as a readonly workflow
     /// </summary>
-    public bool? UsableAsActivity { get; set; } = false;
-    
+    public bool IsReadonly { get; set; } = false;
+
     /// <summary>
     /// Creates and returns a shallow copy of the workflow definition.
     /// </summary>

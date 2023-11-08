@@ -1,15 +1,17 @@
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Models;
+using Elsa.Workflows.Core.Memory;
+using JetBrains.Annotations;
 
-namespace Elsa.Workflows.Core.Abstractions;
+namespace Elsa.Workflows.Core;
 
 /// <summary>
 /// A base class for implementing workflow definitions using the pipelineBuilder API.
 /// </summary>
+[UsedImplicitly(ImplicitUseTargetFlags.WithInheritors)]
 public abstract class WorkflowBase : IWorkflow
 {
     /// <summary>
-    /// Invokes the <see cref="IWorkflowBuilder.BuildWorkflowAsync"/> method on the specified <see cref="IWorkflowBuilder"/>.
+    /// Invokes the the specified <see cref="IWorkflowBuilder"/>.
     /// </summary>
     protected virtual ValueTask BuildAsync(IWorkflowBuilder builder, CancellationToken cancellationToken = default)
     {
@@ -18,7 +20,7 @@ public abstract class WorkflowBase : IWorkflow
     }
 
     /// <summary>
-    /// Invokes the <see cref="IWorkflowBuilder.BuildWorkflowAsync"/> method on the specified <see cref="IWorkflowBuilder"/>.
+    /// Invokes the specified <see cref="IWorkflowBuilder"/>.
     /// </summary>
     /// <param name="builder"></param>
     protected virtual void Build(IWorkflowBuilder builder)
@@ -28,12 +30,12 @@ public abstract class WorkflowBase : IWorkflow
     /// <summary>
     /// Gives derived types a chance to setup the <see cref="IWorkflowBuilder"/> before the BuildAsync method is invoked.
     /// </summary>
-    protected internal virtual ValueTask BeforeBuildAsync(IWorkflowBuilder builder, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    protected virtual ValueTask BeforeBuildAsync(IWorkflowBuilder builder, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     
     /// <summary>
     /// Gives derived types a chance to setup the <see cref="IWorkflowBuilder"/> after the BuildAsync method was invoked.
     /// </summary>
-    protected internal virtual ValueTask AfterBuildAsync(IWorkflowBuilder builder, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    protected virtual ValueTask AfterBuildAsync(IWorkflowBuilder builder, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
     async ValueTask IWorkflow.BuildAsync(IWorkflowBuilder builder, CancellationToken cancellationToken)
     {
@@ -60,16 +62,16 @@ public abstract class WorkflowBase<TResult> : WorkflowBase
     protected Variable<TResult> Result { get; }
 
     /// <inheritdoc />
-    protected internal override ValueTask BeforeBuildAsync(IWorkflowBuilder builder, CancellationToken cancellationToken = default)
+    protected override ValueTask BeforeBuildAsync(IWorkflowBuilder builder, CancellationToken cancellationToken = default)
     {
         builder.Result = Result;
         return ValueTask.CompletedTask;
     }
 
     /// <inheritdoc />
-    protected internal override ValueTask AfterBuildAsync(IWorkflowBuilder builder, CancellationToken cancellationToken = default)
+    protected override ValueTask AfterBuildAsync(IWorkflowBuilder builder, CancellationToken cancellationToken = default)
     {
-        var variables = builder.Variables ?? new List<Variable>();
+        var variables = builder.Variables;
         
         if(!variables.Contains(Result))
            variables.Add(Result);

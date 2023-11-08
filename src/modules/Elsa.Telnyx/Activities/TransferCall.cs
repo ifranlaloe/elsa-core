@@ -1,15 +1,16 @@
 ﻿using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
 using Elsa.Extensions;
+using Elsa.Telnyx.Attributes;
+using Elsa.Telnyx.Bookmarks;
 using Elsa.Telnyx.Client.Models;
 using Elsa.Telnyx.Client.Services;
 using Elsa.Telnyx.Extensions;
+using Elsa.Telnyx.Payloads.Abstractions;
 using Elsa.Telnyx.Payloads.Call;
 using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Activities.Flowchart.Attributes;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Management.Models;
 using Refit;
 
 namespace Elsa.Telnyx.Activities;
@@ -19,14 +20,14 @@ namespace Elsa.Telnyx.Activities;
 /// </summary>
 [Activity(Constants.Namespace, "Transfer a call to a new destination.", Kind = ActivityKind.Task)]
 [FlowNode("Transferred", "Hangup", "Disconnected")]
-public class TransferCall : CodeActivity
+[WebhookDriven(WebhookEventTypes.CallInitiated, WebhookEventTypes.CallAnswered, WebhookEventTypes.CallHangup)]
+public class TransferCall : Activity<CallPayload>
 {
     /// <inheritdoc />
-    [JsonConstructor]
     public TransferCall([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }
-    
+
     /// <summary>
     /// Unique identifier and token for controlling the call.
     /// </summary>
@@ -35,7 +36,7 @@ public class TransferCall : CodeActivity
         Description = "Unique identifier and token for controlling the call.",
         Category = "Advanced"
     )]
-    public Input<string?> CallControlId { get; set; } = default!;
+    public Input<string> CallControlId { get; set; } = default!;
 
     /// <summary>
     /// The DID or SIP URI to dial out and bridge to the given call.
@@ -97,39 +98,54 @@ public class TransferCall : CodeActivity
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
     {
         await TransferCallAsync(context);
-        context.CreateBookmark(ResumeAsync);
+
+        var initiatedBookmark = new WebhookEventBookmarkPayload(WebhookEventTypes.CallInitiated);
+        context.CreateBookmark(initiatedBookmark, InitiatedAsync);
     }
 
-    private async ValueTask ResumeAsync(ActivityExecutionContext context)
+    private ValueTask InitiatedAsync(ActivityExecutionContext context)
     {
-        var payload = context.GetInput<CallPayload>();
+        var payload = context.GetWorkflowInput<CallInitiatedPayload>();
+        var callControlId = payload.CallControlId;
+        var answeredBookmark = new WebhookEventBookmarkPayload(WebhookEventTypes.CallAnswered, callControlId);
+        var hangupBookmark = new WebhookEventBookmarkPayload(WebhookEventTypes.CallHangup, callControlId);
+        context.CreateBookmark(answeredBookmark, AnsweredAsync, false);
+        context.CreateBookmark(hangupBookmark, HangupAsync, false);
+        return default;
+    }
+    
+    private async ValueTask AnsweredAsync(ActivityExecutionContext context)
+    {
+        var payload = context.GetWorkflowInput<CallAnsweredPayload>();
+        Result.Set(context, payload);
+        await context.CompleteActivityWithOutcomesAsync("Transferred");
+    }
 
-        switch (payload)
-        {
-            case CallAnsweredPayload:
-                await context.CompleteActivityWithOutcomesAsync("Transferred");
-                break;
-            case CallHangupPayload:
-                await context.CompleteActivityWithOutcomesAsync("Hangup");
-                break;
-        }
+    private async ValueTask HangupAsync(ActivityExecutionContext context)
+    {
+        var payload = context.GetWorkflowInput<CallHangupPayload>();
+        Result.Set(context, payload);
+        await context.CompleteActivityWithOutcomesAsync("Hangup");
     }
 
     private async ValueTask TransferCallAsync(ActivityExecutionContext context)
     {
+        var callControlId = CallControlId.Get(context);
+        
         var request = new TransferCallRequest(
             To.Get(context) ?? throw new Exception("To is required."),
-            From.Get(context),
-            FromDisplayName.Get(context),
-            AudioUrl.Get(context),
-            AnsweringMachineDetection.Get(context),
+            From.GetOrDefault(context),
+            FromDisplayName.GetOrDefault(context).SanitizeCallerName(),
+            AudioUrl.GetOrDefault(context),
+            AnsweringMachineDetection.GetOrDefault(context),
             default,
-            TimeLimitSecs.Get(context),
-            TimeoutSecs.Get(context),
-            ClientState: context.CreateCorrelatingClientState()
+            TimeLimitSecs.GetOrDefault(context),
+            TimeoutSecs.GetOrDefault(context),
+            ClientState: context.CreateCorrelatingClientState(context.Id),
+            TargetLegClientState: context.CreateCorrelatingClientState(context.Id)
         );
 
-        var callControlId = context.GetPrimaryCallControlId(CallControlId) ?? throw new Exception("CallControlId is required.");
+        
         var telnyxClient = context.GetRequiredService<ITelnyxClient>();
 
         try

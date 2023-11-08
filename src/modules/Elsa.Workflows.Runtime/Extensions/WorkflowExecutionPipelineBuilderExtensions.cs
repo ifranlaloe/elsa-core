@@ -1,7 +1,7 @@
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Middleware.Workflows;
 using Elsa.Workflows.Core.Pipelines.WorkflowExecution;
-using Elsa.Workflows.Runtime.Middleware;
+using Elsa.Workflows.Runtime.Middleware.Workflows;
 
 // ReSharper disable once CheckNamespace
 namespace Elsa.Extensions;
@@ -14,13 +14,14 @@ public static class WorkflowExecutionPipelineBuilderExtensions
     /// <summary>
     /// Configures the workflow execution pipeline with commonly used components.
     /// </summary>
-    public static IWorkflowExecutionPipelineBuilder UseDefaultRuntimePipeline(this IWorkflowExecutionPipelineBuilder pipelineBuilder) =>
+    public static IWorkflowExecutionPipelineBuilder UseDefaultPipeline(this IWorkflowExecutionPipelineBuilder pipelineBuilder) =>
         pipelineBuilder
             .Reset()
             .UsePersistentVariables()
             .UseBookmarkPersistence()
+            .UseActivityExecutionLogPersistence()
             .UseWorkflowExecutionLogPersistence()
-            .UseWorkflowStatePersistence()
+            .UseExceptionHandling()
             .UseDefaultActivityScheduler();
 
     /// <summary>
@@ -39,7 +40,7 @@ public static class WorkflowExecutionPipelineBuilderExtensions
     public static IWorkflowExecutionPipelineBuilder UseWorkflowExecutionLogPersistence(this IWorkflowExecutionPipelineBuilder pipelineBuilder) => pipelineBuilder.UseMiddleware<PersistWorkflowExecutionLogMiddleware>();
     
     /// <summary>
-    /// Installs middleware that persist the workflow execution state.
+    /// Installs middleware that persist activity execution records.
     /// </summary>
-    public static IWorkflowExecutionPipelineBuilder UseWorkflowStatePersistence(this IWorkflowExecutionPipelineBuilder pipelineBuilder) => pipelineBuilder.UseMiddleware<PersistWorkflowStateMiddleware>();
+    public static IWorkflowExecutionPipelineBuilder UseActivityExecutionLogPersistence(this IWorkflowExecutionPipelineBuilder pipelineBuilder) => pipelineBuilder.UseMiddleware<PersistActivityExecutionLogMiddleware>();
 }

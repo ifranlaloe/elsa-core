@@ -1,12 +1,10 @@
 using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
-using Elsa.Expressions.Models;
 using Elsa.Extensions;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Behaviors;
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Core.Activities;
 
@@ -14,31 +12,47 @@ namespace Elsa.Workflows.Core.Activities;
 /// Iterate over a sequence of steps between a start and an end number.
 /// </summary>
 [Activity("Elsa", "Looping", "Iterate over a sequence of steps between a start and an end number.")]
+[PublicAPI]
 public class For : Activity
 {
     private const string CurrentStepProperty = "CurrentStep";
 
     /// <inheritdoc />
-    [JsonConstructor]
     public For([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
         Behaviors.Add<BreakBehavior>(this);
     }
 
     /// <inheritdoc />
-    public For(int start, int end, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : this(source, line)
+    public For(int start, int end, int step, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : this(source, line)
     {
         Start = new Input<int>(start);
         End = new Input<int>(end);
+        Step = new Input<int>(step);
     }
 
+    /// <summary>
+    /// The start step.
+    /// </summary>
+    [Input(Description = "The start step.")]
     public Input<int> Start { get; set; } = new(0);
+
+    /// <summary>
+    /// The end step.
+    /// </summary>
+    [Input(Description = "The end step.")]
     public Input<int> End { get; set; } = new(0);
+
+    /// <summary>
+    /// The step size. To count down, enter a negative number.
+    /// </summary>
+    [Input(Description = "The step size. To count down, enter a negative number.")]
     public Input<int> Step { get; set; } = new(1);
 
     /// <summary>
     /// Controls whether the end step is upper/lowerbound inclusive or exclusive. True (inclusive) by default.
     /// </summary>
+    [Input(Description = "Controls whether the end step is upper/lowerbound inclusive or exclusive. True (inclusive) by default.")]
     public Input<bool> OuterBoundInclusive { get; set; } = new(true);
 
     /// <summary>
@@ -50,9 +64,8 @@ public class For : Activity
     /// <summary>
     /// Stores the current value for each iteration. 
     /// </summary>
-    [JsonIgnore]
     [Output]
-    public Output<MemoryBlockReference?> CurrentValue { get; set; } = new();
+    public Output<object?> CurrentValue { get; set; } = new();
 
     /// <inheritdoc />
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
@@ -73,15 +86,17 @@ public class For : Activity
         var start = context.Get(Start);
         var step = context.Get(Step);
         var inclusive = context.Get(OuterBoundInclusive);
-        var increment = end >= start;
+        var increment = step >= 0;
 
-        currentValue = currentValue == null ? start : increment ? currentValue + step : currentValue - step;
+        currentValue = currentValue == null ? start : (currentValue + step);
+
+        var isBreaking = context.GetIsBreaking();
 
         var loop =
-            increment && inclusive ? currentValue <= end
-            : increment && !inclusive ? currentValue < end
-            : !increment && inclusive ? currentValue >= end
-            : !increment && !inclusive && currentValue > end;
+            !isBreaking && (increment && inclusive ? currentValue <= end
+                : increment && !inclusive ? currentValue < end
+                : !increment && inclusive ? currentValue >= end
+                : !increment && !inclusive && currentValue > end);
 
         if (loop)
         {
@@ -100,5 +115,5 @@ public class For : Activity
         }
     }
 
-    private async ValueTask OnChildComplete(ActivityExecutionContext context, ActivityExecutionContext childContext) => await HandleIteration(context);
+    private async ValueTask OnChildComplete(ActivityCompletedContext context) => await HandleIteration(context.TargetContext);
 }

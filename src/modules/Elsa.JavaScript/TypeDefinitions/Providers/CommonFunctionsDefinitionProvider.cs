@@ -17,53 +17,80 @@ internal class CommonFunctionsDefinitionProvider : FunctionDefinitionProvider
     {
         _typeAliasRegistry = typeAliasRegistry;
     }
-    
+
     protected override IEnumerable<FunctionDefinition> GetFunctionDefinitions(TypeDefinitionContext context)
     {
         yield return CreateFunctionDefinition(builder => builder
             .Name("getWorkflowInstanceId")
             .ReturnType("string"));
-        
+
         yield return CreateFunctionDefinition(builder => builder
             .Name("getCorrelationId")
             .ReturnType("string"));
-        
+
         yield return CreateFunctionDefinition(builder => builder
             .Name("setCorrelationId")
             .Parameter("value", "string"));
-        
+
         yield return CreateFunctionDefinition(builder => builder
             .Name("setVariable")
             .Parameter("name", "string")
             .Parameter("value", "any"));
-        
+
         yield return CreateFunctionDefinition(builder => builder
             .Name("getVariable")
             .Parameter("name", "string")
             .ReturnType("any"));
+
+        yield return CreateFunctionDefinition(builder => builder
+            .Name("getInput")
+            .Parameter("name", "string")
+            .ReturnType("any"));
+
+        yield return CreateFunctionDefinition(builder => builder
+            .Name("getOutputFrom")
+            .Parameter("activityId", "string")
+            .Parameter("outputName", "string", true)
+            .ReturnType("any"));
         
+        yield return CreateFunctionDefinition(builder => builder
+            .Name("getLastResult")
+            .ReturnType("any"));
+
         yield return CreateFunctionDefinition(builder => builder
             .Name("isNullOrWhiteSpace")
             .Parameter("value", "string")
             .ReturnType("boolean"));
-        
+
         yield return CreateFunctionDefinition(builder => builder
             .Name("isNullOrEmpty")
             .Parameter("value", "string")
             .ReturnType("boolean"));
-        
+
         yield return CreateFunctionDefinition(builder => builder
             .Name("parseGuid")
             .Parameter("value", "string")
             .ReturnType("Guid"));
-        
+
+        yield return CreateFunctionDefinition(builder => builder
+            .Name("getShortGuid")
+            .ReturnType("string"));
+
+        yield return CreateFunctionDefinition(builder => builder
+            .Name("getGuid")
+            .ReturnType("Guid"));
+
+        yield return CreateFunctionDefinition(builder => builder
+            .Name("getGuidString")
+            .ReturnType("string"));
+
         yield return CreateFunctionDefinition(builder => builder
             .Name("toJson")
             .Parameter("value", "any")
             .ReturnType("string"));
-        
+
         // Variable getter and setters.
-        foreach (var variable in context.WorkflowDefinition.Variables)
+        foreach (var variable in context.Workflow.Variables)
         {
             var pascalName = variable.Name.Pascalize();
             var variableType = variable.GetVariableType();
@@ -71,20 +98,9 @@ internal class CommonFunctionsDefinitionProvider : FunctionDefinitionProvider
 
             // get{Variable}.
             yield return CreateFunctionDefinition(builder => builder.Name($"get{pascalName}").ReturnType(typeAlias));
-            
+
             // set{Variable}.
             yield return CreateFunctionDefinition(builder => builder.Name($"set{pascalName}").Parameter("value", typeAlias));
-        }
-        
-        // Input argument getters.
-        foreach (var input in context.WorkflowDefinition.Inputs)
-        {
-            var pascalName = input.Name.Pascalize();
-            var variableType = input.Type;
-            var typeAlias = _typeAliasRegistry.TryGetAlias(variableType, out var alias) ? alias : "any";
-
-            // get{Input}.
-            yield return CreateFunctionDefinition(builder => builder.Name($"get{pascalName}").ReturnType(typeAlias));
         }
     }
 }

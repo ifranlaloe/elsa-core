@@ -1,5 +1,4 @@
-using System.Text.Json;
-using Elsa.Workflows.Core.Models;
+using Elsa.Workflows.Core.Memory;
 
 namespace Elsa.Workflows.Core.State;
 
@@ -40,12 +39,35 @@ public class ActivityExecutionContextState
     /// <summary>
     /// A bag of properties.
     /// </summary>
-    public PropertyBag Properties { get; set; } = new();
+    public IDictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
 
     /// <summary>
     /// The evaluated values of the activity's properties.
     /// </summary>
-    public IDictionary<string, JsonElement>? ActivityState { get; set; }
+    public IDictionary<string, object>? ActivityState { get; set; }
     
-    //public RegisterState Register { get; set; } = default!;
+    /// <summary>
+    /// A list of dynamically created variables.
+    /// </summary>
+    public ICollection<Variable> DynamicVariables { get; set; } = new List<Variable>();
+
+    /// <summary>
+    /// The status of the activity.
+    /// </summary>
+    public ActivityStatus Status { get; set; }
+
+    /// <summary>
+    /// The time at which the activity execution began.
+    /// </summary>
+    public DateTimeOffset StartedAt { get; set; }
+    
+    /// <summary>
+    /// The time at which the activity execution completed.
+    /// </summary>
+    public DateTimeOffset? CompletedAt { get; set; }
+
+    /// <summary>
+    /// An optional tag to associate with the activity execution.
+    /// </summary>
+    public object? Tag { get; set; }
 }

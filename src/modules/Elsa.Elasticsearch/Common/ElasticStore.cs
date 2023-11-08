@@ -30,7 +30,7 @@ public class ElasticStore<T> where T : class
     /// </summary>
     public async Task<IEnumerable<T>> SearchAsync(Action<SearchRequestDescriptor<T>> search, CancellationToken cancellationToken = default)
     {
-        var page = new PageArgs(0, 1000);
+        var page = PageArgs.FromPage(0, 1000);
         var collectedItems = new List<T>();
         
         while(true)
@@ -62,6 +62,19 @@ public class ElasticStore<T> where T : class
             throw new Exception(response.DebugInformation);
             
         return new Page<T>(response.Hits.Select(hit => hit.Source).ToList()!, response.Total);
+    }
+    
+    /// <summary>
+    /// Counts the number of documents matching the given search descriptor.
+    /// </summary>
+    public async Task<long> CountAsync(Action<CountRequestDescriptor<T>> countRequest, CancellationToken cancellationToken = default)
+    {
+        var response = await _elasticClient.CountAsync(countRequest, cancellationToken);
+
+        if (!response.IsSuccess())
+            throw new Exception($"Failed to get count from Elasticsearch: {response.DebugInformation}");
+
+        return response.Count;
     }
 
     /// <summary>

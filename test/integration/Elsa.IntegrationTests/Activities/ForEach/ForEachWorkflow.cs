@@ -1,9 +1,9 @@
 using System.Collections.Generic;
-using Elsa.Workflows.Core.Abstractions;
+using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Activities;
 using Elsa.Workflows.Core.Contracts;
+using Elsa.Workflows.Core.Memory;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
 
 namespace Elsa.IntegrationTests.Activities;
 
@@ -18,7 +18,10 @@ class ForEachWorkflow : WorkflowBase
 
     protected override void Build(IWorkflowBuilder workflow)
     {
-        var currentItem = new Variable<string>("CurrentItem");
+        var currentItem = new Variable<string>
+        {
+            Name = "CurrentItem"
+        };
 
         workflow.Root = new Sequence
         {

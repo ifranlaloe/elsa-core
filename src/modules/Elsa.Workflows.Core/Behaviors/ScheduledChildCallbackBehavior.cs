@@ -1,7 +1,5 @@
 using Elsa.Extensions;
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
 using Elsa.Workflows.Core.Signals;
 
 namespace Elsa.Workflows.Core.Behaviors;
@@ -30,8 +28,13 @@ public class ScheduledChildCallbackBehavior : Behavior
         // Before invoking the parent activity, make sure its properties are evaluated.
         if (!activityExecutionContext.GetHasEvaluatedProperties())
             await activityExecutionContext.EvaluateInputPropertiesAsync();
-        
-        if (callbackEntry.CompletionCallback != null) 
-            await callbackEntry.CompletionCallback(activityExecutionContext, childActivityExecutionContext);
+
+        if (callbackEntry.CompletionCallback != null)
+        {
+            var completedContext = new ActivityCompletedContext(activityExecutionContext, childActivityExecutionContext, signal.Result);
+            var tag = callbackEntry.Tag;
+            completedContext.TargetContext.Tag = tag;
+            await callbackEntry.CompletionCallback(completedContext);
+        }
     }
 }

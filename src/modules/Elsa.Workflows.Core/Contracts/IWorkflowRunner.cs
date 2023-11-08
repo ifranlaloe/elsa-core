@@ -1,6 +1,6 @@
-using Elsa.Workflows.Core.Abstractions;
+using Elsa.Workflows.Core.Activities;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
+using Elsa.Workflows.Core.Options;
 using Elsa.Workflows.Core.State;
 
 namespace Elsa.Workflows.Core.Contracts;
@@ -19,11 +19,3 @@ public interface IWorkflowRunner
     Task<RunWorkflowResult> RunAsync(Workflow workflow, WorkflowState workflowState, RunWorkflowOptions? options = default, CancellationToken cancellationToken = default);
     Task<RunWorkflowResult> RunAsync(WorkflowExecutionContext workflowExecutionContext);
 }
-
-public record RunWorkflowOptions(
-    string? InstanceId = default, 
-    string? CorrelationId = default, 
-    string? BookmarkId = default, 
-    string? ActivityNodeId = default, 
-    IDictionary<string, object>? Input = default, 
-    string? TriggerActivityId = default);

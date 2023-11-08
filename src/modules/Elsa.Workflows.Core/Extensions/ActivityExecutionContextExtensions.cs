@@ -1,16 +1,20 @@
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Elsa.Common.Contracts;
 using Elsa.Expressions.Contracts;
 using Elsa.Expressions.Helpers;
+using Elsa.Expressions.Models;
+using Elsa.Mediator.Contracts;
+using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Activities.Flowchart.Models;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Contracts;
+using Elsa.Workflows.Core.Memory;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
+using Elsa.Workflows.Core.Notifications;
 using Elsa.Workflows.Core.Signals;
+using JetBrains.Annotations;
 using Microsoft.Extensions.Logging;
 
 // ReSharper disable once CheckNamespace
@@ -19,16 +23,17 @@ namespace Elsa.Extensions;
 /// <summary>
 /// Provides extension methods for <see cref="ActivityExecutionContext"/>.
 /// </summary>
+[PublicAPI]
 public static class ActivityExecutionContextExtensions
 {
     /// <summary>
     /// Attempts to get a value from the input provided via <see cref="WorkflowExecutionContext"/>. If a value was found, an attempt is made to convert it into the specified type <code>T</code>.
     /// </summary>
-    public static bool TryGetInput<T>(this ActivityExecutionContext context, string key, out T value, JsonSerializerOptions? serializerOptions = default)
+    public static bool TryGetWorkflowInput<T>(this ActivityExecutionContext context, string key, out T value, JsonSerializerOptions? serializerOptions = default)
     {
         var wellKnownTypeRegistry = context.GetRequiredService<IWellKnownTypeRegistry>();
 
-        if (context.Input.TryGetValue(key, out var v))
+        if (context.WorkflowInput.TryGetValue(key, out var v))
         {
             value = v.ConvertTo<T>(new ObjectConverterOptions(serializerOptions, wellKnownTypeRegistry))!;
             return true;
@@ -41,15 +46,27 @@ public static class ActivityExecutionContextExtensions
     /// <summary>
     /// Gets a value from the input provided via <see cref="WorkflowExecutionContext"/>. If a value was found, an attempt is made to convert it into the specified type <code>T</code>.
     /// </summary>
-    public static T GetInput<T>(this ActivityExecutionContext context, JsonSerializerOptions? serializerOptions = default) => context.GetInput<T>(typeof(T).Name, serializerOptions);
+    public static T GetWorkflowInput<T>(this ActivityExecutionContext context, JsonSerializerOptions? serializerOptions = default) => context.GetWorkflowInput<T>(typeof(T).Name, serializerOptions);
 
     /// <summary>
     /// Gets a value from the input provided via <see cref="WorkflowExecutionContext"/>. If a value was found, an attempt is made to convert it into the specified type <code>T</code>.
     /// </summary>
-    public static T GetInput<T>(this ActivityExecutionContext context, string key, JsonSerializerOptions? serializerOptions = default)
+    public static T GetWorkflowInput<T>(this ActivityExecutionContext context, string key, JsonSerializerOptions? serializerOptions = default)
     {
         var wellKnownTypeRegistry = context.GetRequiredService<IWellKnownTypeRegistry>();
-        return context.Input[key].ConvertTo<T>(new ObjectConverterOptions(serializerOptions, wellKnownTypeRegistry))!;
+        return context.WorkflowInput[key].ConvertTo<T>(new ObjectConverterOptions(serializerOptions, wellKnownTypeRegistry))!;
+    }
+
+    /// <summary>
+    /// Sets the Result property of the specified activity.
+    /// </summary>
+    /// <param name="context">The <see cref="ActivityExecutionContext"/></param> being extended.
+    /// <param name="value">The value to set.</param>
+    /// <exception cref="Exception">Thrown when the specified activity does not implement <see cref="IActivityWithResult"/>.</exception>
+    public static void SetResult(this ActivityExecutionContext context, object? value)
+    {
+        var activity = context.Activity as IActivityWithResult ?? throw new Exception($"Cannot set result on activity {context.Activity.Id} because it does not implement {nameof(IActivityWithResult)}.");
+        context.Set(activity.Result, value, "Result");
     }
 
     /// <summary>
@@ -74,17 +91,58 @@ public static class ActivityExecutionContextExtensions
         var parentActivityInstanceId = context.ParentActivityExecutionContext?.Id;
         var workflowExecutionContext = context.WorkflowExecutionContext;
         var now = context.GetRequiredService<ISystemClock>().UtcNow;
-
-        if (source == null && activity.Source != null)
-            source = $"{Path.GetFileName(activity.Source)}:{activity.Line}";
-
         var activityState = includeActivityState ? context.ActivityState : default;
-        var logEntry = new WorkflowExecutionLogEntry(activityInstanceId, parentActivityInstanceId, activity.Id, activity.Type, activityState, now, eventName, message, source, payload);
+
+        var logEntry = new WorkflowExecutionLogEntry(
+            activityInstanceId,
+            parentActivityInstanceId,
+            activity.Id,
+            activity.Type,
+            activity.Version,
+            activity.Name,
+            context.NodeId,
+            activityState,
+            now,
+            workflowExecutionContext.ExecutionLogSequence++,
+            eventName,
+            message,
+            source ?? activity.GetSource(),
+            payload);
+
         workflowExecutionContext.ExecutionLog.Add(logEntry);
         return logEntry;
     }
 
-    public static Variable SetVariable(this ActivityExecutionContext context, string name, object? value) => context.ExpressionExecutionContext.SetVariable(name, value);
+    /// <summary>
+    /// Creates a workflow variable by name and optionally sets the value.
+    /// </summary>
+    /// <param name="context">The <see cref="ActivityExecutionContext"/> being extended.</param>
+    /// <param name="name">The name of the variable.</param>
+    /// <param name="value">The value of the variable.</param>
+    /// <param name="storageDriverType">The type of storage driver to use for the variable.</param>
+    /// <param name="configure">A callback to configure the memory block.</param>
+    /// <returns>The created <see cref="Variable"/>.</returns>
+    public static Variable CreateVariable(this ActivityExecutionContext context, string name, object? value, Type? storageDriverType = default, Action<MemoryBlock>? configure = default) =>
+        context.ExpressionExecutionContext.CreateVariable(name, value, storageDriverType, configure);
+
+    /// <summary>
+    /// Sets a workflow variable by name.
+    /// </summary>
+    /// <param name="context">The <see cref="ActivityExecutionContext"/> being extended.</param>
+    /// <param name="name">The name of the variable.</param>
+    /// <param name="value">The value of the variable.</param>
+    /// <param name="configure">A callback to configure the memory block.</param>
+    /// <returns>The created <see cref="Variable"/>.</returns>
+    public static Variable SetVariable(this ActivityExecutionContext context, string name, object? value, Action<MemoryBlock>? configure = default) =>
+        context.ExpressionExecutionContext.SetVariable(name, value, configure);
+
+    /// <summary>
+    /// Gets a workflow variable by name.
+    /// </summary>
+    /// <param name="context">The <see cref="ActivityExecutionContext"/> being extended.</param>
+    /// <param name="name">The name of the variable.</param>
+    /// <typeparam name="T">The type of the variable.</typeparam>
+    /// <returns>The variable if found, otherwise null.</returns>
     public static T? GetVariable<T>(this ActivityExecutionContext context, string name) => context.ExpressionExecutionContext.GetVariable<T?>(name);
 
     /// <summary>
@@ -97,26 +155,12 @@ public static class ActivityExecutionContextExtensions
     /// </summary>
     public static async Task EvaluateInputPropertiesAsync(this ActivityExecutionContext context)
     {
-        var activity = context.Activity;
+        var activityDescriptor = context.ActivityDescriptor;
+        var inputDescriptors = activityDescriptor.Inputs;
 
-        // TODO: Get inputs from activity descriptor.
-        var inputs = activity.GetNamedInputs();
-
-        var assignedInputs = inputs.Where(x => x.Value.MemoryBlockReference != null!).ToList();
-        var evaluator = context.GetRequiredService<IExpressionEvaluator>();
-        var stateSerializer = context.GetRequiredService<IActivityStateSerializer>();
-        var expressionExecutionContext = context.ExpressionExecutionContext;
-
-        foreach (var input in assignedInputs)
-        {
-            var memoryReference = input.Value.MemoryBlockReference();
-            var value = await evaluator.EvaluateAsync(input.Value, expressionExecutionContext);
-            memoryReference.Set(context, value);
-
-            // Also set the evaluated input value on the activity.
-            var serializedValue = await stateSerializer.SerializeAsync(value);
-            context.ActivityState[input.Key] = serializedValue;
-        }
+        // Evaluate inputs.
+        foreach (var inputDescriptor in inputDescriptors)
+            await EvaluateInputPropertyAsync(context, activityDescriptor, inputDescriptor);
 
         context.SetHasEvaluatedProperties();
     }
@@ -128,49 +172,139 @@ public static class ActivityExecutionContextExtensions
     {
         var inputName = propertyExpression.GetProperty()!.Name;
         var input = await EvaluateInputPropertyAsync(context, inputName);
-        return context.Get((Input<T>)input);
+        return input.ConvertTo<T>();
     }
 
     /// <summary>
     /// Evaluates a specific input property of the activity.
     /// </summary>
-    public static async Task<Input> EvaluateInputPropertyAsync(this ActivityExecutionContext context, string inputName)
+    public static async Task<object?> EvaluateInputPropertyAsync(this ActivityExecutionContext context, string inputName)
     {
         var activity = context.Activity;
-        var input = activity.GetInput(inputName);
+        var activityRegistry = context.GetRequiredService<IActivityRegistry>();
+        var activityDescriptor = activityRegistry.Find(activity.Type) ?? throw new Exception("Activity descriptor not found");
+        var inputDescriptor = activityDescriptor.GetWrappedInputPropertyDescriptor(activity, inputName);
 
-        if (input == null)
+        if (inputDescriptor == null)
             throw new Exception($"No input with name {inputName} could be found");
 
-        if (input.MemoryBlockReference == null!)
-            throw new Exception("Input not initialized");
+        return await EvaluateInputPropertyAsync(context, activityDescriptor, inputDescriptor);
+    }
+    
+    public static IEnumerable<(IActivity Activity, ActivityDescriptor ActivityDescriptor)> GetActivitiesWithOutputs(this ActivityExecutionContext activityExecutionContext)
+    {
+        // Get current container.
+        var currentContainerNode = activityExecutionContext.FindParentWithVariableContainer()?.ActivityNode;
 
-        var evaluator = context.GetRequiredService<IExpressionEvaluator>();
-        var expressionExecutionContext = context.ExpressionExecutionContext;
+        if (currentContainerNode == null)
+            yield break;
 
-        var memoryBlockReference = input.MemoryBlockReference();
-        var value = await evaluator.EvaluateAsync(input, expressionExecutionContext);
-        memoryBlockReference.Set(context, value);
+        // Get all nodes in the current container
+        var workflowExecutionContext = activityExecutionContext.WorkflowExecutionContext;
+        var containedNodes = workflowExecutionContext.Nodes.Where(x => x.Parents.Contains(currentContainerNode)).Distinct().ToList();
 
-        return input;
+        // Select activities with outputs.
+        var activityRegistry = workflowExecutionContext.GetRequiredService<IActivityRegistry>();
+        var activitiesWithOutputs = containedNodes.GetActivitiesWithOutputs(activityRegistry);
+
+        foreach (var (activity, activityDescriptor) in activitiesWithOutputs)
+            yield return (activity, activityDescriptor);
     }
 
     /// <summary>
-    /// Schedules the specified activity with the provided callback.
-    /// If the activity is null, the callback is invoked immediately.
+    /// Returns a set of tuples containing the activity and its descriptor for all activities with outputs.
     /// </summary>
-    public static async Task ScheduleOutcomeAsync(this ActivityExecutionContext context, IActivity? activity, [CallerArgumentExpression("activity")] string portPropertyName = default!)
+    public static IEnumerable<(IActivity Activity, ActivityDescriptor ActivityDescriptor)> GetActivitiesWithOutputs(this IEnumerable<ActivityNode> nodes, IActivityRegistry activityRegistry)
     {
-        if (activity == null)
-        {
-            var outcome = context.GetOutcomeName(portPropertyName);
-            await context.CompleteActivityWithOutcomesAsync(outcome);
-            return;
-        }
+        // Select activities with outputs.
+        var activitiesWithOutputs =
+            from node in nodes
+            let activity = node.Activity
+            let activityDescriptor = activityRegistry.Find(activity.Type, activity.Version)
+            where activityDescriptor.Outputs.Any()
+            select (activity, activityDescriptor);
 
-        await context.ScheduleActivityAsync(activity, context);
+        foreach (var (activity, activityDescriptor) in activitiesWithOutputs)
+            yield return (activity, activityDescriptor);
+    }
+    
+    /// <summary>
+    /// Returns the activity with the specified ID or name.
+    /// </summary>
+    public static IActivity? FindActivityByIdOrName(this ActivityExecutionContext activityExecutionContext, string idOrName)
+    {
+        // Get current container.
+        var currentContainerNode = activityExecutionContext.FindParentWithVariableContainer()?.ActivityNode;
+
+        if (currentContainerNode == null)
+            return null;
+
+        // Get all nodes in the current container
+        var workflowExecutionContext = activityExecutionContext.WorkflowExecutionContext;
+        var containedNodes = workflowExecutionContext.Nodes.Where(x => x.Parents.Contains(currentContainerNode)).Distinct().ToList();
+        var node = containedNodes.FirstOrDefault(x => x.Activity.Name == idOrName || x.Activity.Id == idOrName);
+        return node?.Activity;
     }
 
+    private static async Task<object?> EvaluateInputPropertyAsync(this ActivityExecutionContext context, ActivityDescriptor activityDescriptor, InputDescriptor inputDescriptor)
+    {
+        var activity = context.Activity;
+        var defaultValue = inputDescriptor.DefaultValue;
+        var value = defaultValue;
+        var input = inputDescriptor.ValueGetter(activity);
+
+        if (inputDescriptor.IsWrapped)
+        {
+            var wrappedInput = (Input?)input;
+
+            if (defaultValue != null && wrappedInput == null)
+            {
+                var typedInput = typeof(Input<>).MakeGenericType(inputDescriptor.Type);
+                var valueExpression = new Literal(defaultValue)
+                {
+                    Id = Guid.NewGuid().ToString()
+                };
+                wrappedInput = (Input)Activator.CreateInstance(typedInput, valueExpression)!;
+                inputDescriptor.ValueSetter(activity, wrappedInput);
+            }
+            else
+            {
+                var evaluator = context.GetRequiredService<IExpressionEvaluator>();
+                var expressionExecutionContext = context.ExpressionExecutionContext;
+                value = wrappedInput?.Expression != null ? await evaluator.EvaluateAsync(wrappedInput, expressionExecutionContext) : defaultValue;
+            }
+
+            var memoryReference = wrappedInput?.MemoryBlockReference();
+
+            // When input is created from an activity provider, there may be no memory block reference.
+            if (memoryReference?.Id != null!)
+            {
+                // Declare the input memory block on the current context. 
+                context.ExpressionExecutionContext.Set(memoryReference, value!);
+            }
+        }
+        else
+        {
+            value = input;
+        }
+
+        // Store the serialized input value in the activity state.
+        // Serializing the value ensures we store a copy of the value and not a reference to the input, which may change over time.
+        if (inputDescriptor.IsSerializable != false)
+        {
+            var serializedValue = await context.GetRequiredService<ISafeSerializer>().SerializeToElementAsync(value);
+            context.ActivityState[inputDescriptor.Name] = serializedValue;
+        }
+
+        return value;
+    }
+
+    /// <summary>
+    /// Returns the outcome name for the specified port property name.
+    /// </summary>
+    /// <param name="context">The <see cref="ActivityExecutionContext"/> being extended.</param>
+    /// <param name="portPropertyName">The name of the port property.</param>
+    /// <returns>The outcome name.</returns>
     public static string GetOutcomeName(this ActivityExecutionContext context, string portPropertyName)
     {
         var owner = context.Activity;
@@ -185,6 +319,13 @@ public static class ActivityExecutionContextExtensions
         return portProperty.GetCustomAttribute<PortAttribute>()?.Name ?? portProperty.Name;
     }
 
+    /// <summary>
+    /// Evaluates the specified input and sets the result in the activity execution context's memory space.
+    /// </summary>
+    /// <param name="context">The <see cref="ActivityExecutionContext"/> being extended.</param>
+    /// <param name="input">The input to evaluate.</param>
+    /// <typeparam name="T">The type of the input.</typeparam>
+    /// <returns>The evaluated value.</returns>
     public static async Task<T?> EvaluateAsync<T>(this ActivityExecutionContext context, Input<T> input)
     {
         var evaluator = context.GetRequiredService<IExpressionEvaluator>();
@@ -197,7 +338,6 @@ public static class ActivityExecutionContextExtensions
     /// <summary>
     /// Returns a flattened list of the current context's ancestors.
     /// </summary>
-    /// <returns></returns>
     public static IEnumerable<ActivityExecutionContext> GetAncestors(this ActivityExecutionContext context)
     {
         var current = context.ParentActivityExecutionContext;
@@ -210,40 +350,101 @@ public static class ActivityExecutionContextExtensions
     }
 
     /// <summary>
+    /// Returns a flattened list of the current context's descendants.
+    /// </summary>
+    public static IEnumerable<ActivityExecutionContext> GetDescendents(this ActivityExecutionContext context)
+    {
+        var children = context.WorkflowExecutionContext.ActivityExecutionContexts.Where(x => x.ParentActivityExecutionContext == context).ToList();
+
+        foreach (var child in children)
+        {
+            yield return child;
+
+            foreach (var descendent in GetDescendents(child))
+                yield return descendent;
+        }
+    }
+
+    /// <summary>
+    /// Returns a flattened list of the current context's immediate active children.
+    /// </summary>
+    public static IEnumerable<ActivityExecutionContext> GetActiveChildren(this ActivityExecutionContext context) =>
+        context.WorkflowExecutionContext.ActivityExecutionContexts.Where(x => x.ParentActivityExecutionContext == context);
+
+    /// <summary>
     /// Returns a flattened list of the current context's immediate children.
     /// </summary>
-    /// <returns></returns>
     public static IEnumerable<ActivityExecutionContext> GetChildren(this ActivityExecutionContext context) =>
         context.WorkflowExecutionContext.ActivityExecutionContexts.Where(x => x.ParentActivityExecutionContext == context);
 
     /// <summary>
-    /// Removes all child <see cref="ActivityExecutionContext"/> objects.
+    /// Returns a flattened list of the current context's descendants.
     /// </summary>
-    public static async Task RemoveChildrenAsync(this ActivityExecutionContext context)
+    public static IEnumerable<ActivityExecutionContext> GetDescendants(this ActivityExecutionContext context)
     {
-        // Detach child activity execution contexts.
-        await context.WorkflowExecutionContext.RemoveActivityExecutionContextsAsync(context.GetChildren());
+        var children = context.WorkflowExecutionContext.ActivityExecutionContexts.Where(x => x.ParentActivityExecutionContext == context).ToList();
+
+        foreach (var child in children)
+        {
+            yield return child;
+
+            foreach (var descendant in child.GetDescendants())
+                yield return descendant;
+        }
     }
 
     /// <summary>
-    /// Send a signal up the current branch.
+    /// Send a signal up the current hierarchy of ancestors.
     /// </summary>
     public static async ValueTask SendSignalAsync(this ActivityExecutionContext context, object signal)
     {
-        var ancestorContexts = new[] { context }.Concat(context.GetAncestors());
+        var receivingContexts = new[] { context }.Concat(context.GetAncestors()).ToList();
+        var capturingContexts = receivingContexts.AsEnumerable().Reverse().ToList();
+        var logger = context.GetRequiredService<ILogger<ActivityExecutionContext>>();
 
-        foreach (var ancestorContext in ancestorContexts)
+        // Let all ancestors capture the signal.
+        foreach (var ancestorContext in capturingContexts)
         {
             var signalContext = new SignalContext(ancestorContext, context, context.CancellationToken);
 
             if (ancestorContext.Activity is not ISignalHandler handler)
                 continue;
 
-            await handler.HandleSignalAsync(signal, signalContext);
+            logger.LogDebug("Capturing signal {SignalType} on activity {ActivityId} of type {ActivityType}", signal.GetType().Name, ancestorContext.Activity.Id, ancestorContext.Activity.Type);
+            await handler.CaptureSignalAsync(signal, signalContext);
 
             if (signalContext.StopPropagationRequested)
+            {
+                logger.LogDebug("Propagation of signal {SignalType} on activity {ActivityId} of type {ActivityType} was stopped", signal.GetType().Name, ancestorContext.Activity.Id, ancestorContext.Activity.Type);
                 return;
+            }
         }
+
+        // Let all ancestors receive the signal.
+        foreach (var ancestorContext in receivingContexts)
+        {
+            var signalContext = new SignalContext(ancestorContext, context, context.CancellationToken);
+
+            if (ancestorContext.Activity is not ISignalHandler handler)
+                continue;
+
+            logger.LogDebug("Receiving signal {SignalType} on activity {ActivityId} of type {ActivityType}", signal.GetType().Name, ancestorContext.Activity.Id, ancestorContext.Activity.Type);
+            await handler.ReceiveSignalAsync(signal, signalContext);
+
+            if (signalContext.StopPropagationRequested)
+            {
+                logger.LogDebug("Propagation of signal {SignalType} on activity {ActivityId} of type {ActivityType} was stopped", signal.GetType().Name, ancestorContext.Activity.Id, ancestorContext.Activity.Type);
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Complete the current activity. This should only be called by activities that explicitly suppress automatic-completion.
+    /// </summary>
+    public static async ValueTask CompleteActivityAsync(this ActivityCompletedContext context, object? result = default)
+    {
+        await context.TargetContext.CompleteActivityAsync(result);
     }
 
     /// <summary>
@@ -251,12 +452,107 @@ public static class ActivityExecutionContextExtensions
     /// </summary>
     public static async ValueTask CompleteActivityAsync(this ActivityExecutionContext context, object? result = default)
     {
+        // If the activity is not running, do nothing.
+        if (context.Status != ActivityStatus.Running)
+            return;
+
+        // Update all child contexts.
+        var childContexts = context.WorkflowExecutionContext.ActivityExecutionContexts.Where(x => x.ParentActivityExecutionContext == context).ToList();
+
+        foreach (var childContext in childContexts)
+            await childContext.CancelActivityAsync();
+
+        // Mark the activity as complete.
+        context.Status = ActivityStatus.Completed;
+
+        // Record the outcomes, if any.
+        if (result is Outcomes outcomes)
+            context.JournalData["Outcomes"] = outcomes.Names;
+
+        // Record the output, if any.
+        var activity = context.Activity;
+        var expressionExecutionContext = context.ExpressionExecutionContext;
+        var activityDescriptor = context.ActivityDescriptor;
+        var outputDescriptors = activityDescriptor.Outputs;
+        var outputs = outputDescriptors.ToDictionary(x => x.Name, x => activity.GetOutput(expressionExecutionContext, x.Name)!);
+        var serializer = context.GetRequiredService<ISafeSerializer>();
+
+        foreach (var outputDescriptor in outputDescriptors)
+        {
+            if (outputDescriptor.IsSerializable == false)
+                continue;
+
+            var outputName = outputDescriptor.Name;
+            var outputValue = outputs[outputName];
+
+            if (outputValue == null!)
+                continue;
+
+            var serializedOutputValue = await serializer.SerializeAsync(outputValue);
+            context.JournalData[outputName] = serializedOutputValue;
+        }
+
+        // Add an execution log entry.
+        context.AddExecutionLogEntry("Completed", payload: context.JournalData, includeActivityState: true);
+
         // Send a signal.
         await context.SendSignalAsync(new ActivityCompleted(result));
 
-        // Remove the context.
-        await context.WorkflowExecutionContext.RemoveActivityExecutionContextAsync(context);
+        // Clear bookmarks.
+        context.ClearBookmarks();
+
+        // Remove completion callbacks.
+        context.ClearCompletionCallbacks();
+
+        // Remove all associated variables, unless this is the root context - in which case we want to keep the variables since we're not deleting that one.
+        if (context.ParentActivityExecutionContext != null)
+        {
+            var variablePersistenceManager = context.GetRequiredService<IVariablePersistenceManager>();
+            await variablePersistenceManager.DeleteVariablesAsync(context);
+        }
+
+        // Update the completed at timestamp.
+        context.CompletedAt = context.WorkflowExecutionContext.SystemClock.UtcNow;
     }
+
+    /// <summary>
+    /// Complete the current activity. This should only be called by activities that explicitly suppress automatic-completion.
+    /// </summary>
+    public static async ValueTask ScheduleOutcomesAsync(this ActivityExecutionContext context, params string[] outcomes)
+    {
+        var cancellationToken = context.CancellationToken;
+
+        // Record the outcomes, if any.
+        context.JournalData["Outcomes"] = outcomes;
+
+        // Record the output, if any.
+        var activity = context.Activity;
+        var expressionExecutionContext = context.ExpressionExecutionContext;
+        var activityDescriptor = context.ActivityDescriptor;
+        var outputDescriptors = activityDescriptor.Outputs;
+        var outputs = outputDescriptors.ToDictionary(x => x.Name, x => activity.GetOutput(expressionExecutionContext, x.Name)!);
+        var serializer = context.GetRequiredService<ISafeSerializer>();
+
+        foreach (var output in outputs)
+        {
+            var outputName = output.Key;
+            var outputValue = output.Value;
+
+            if (outputValue == null!)
+                continue;
+
+            var serializedOutputValue = await serializer.SerializeAsync(outputValue, cancellationToken);
+            context.JournalData[outputName] = serializedOutputValue;
+        }
+
+        // Send a signal.
+        await context.SendSignalAsync(new ScheduleActivityOutcomes(outcomes));
+    }
+
+    /// <summary>
+    /// Complete the current activity with the specified outcome.
+    /// </summary>
+    public static ValueTask CompleteActivityWithOutcomesAsync(this ActivityCompletedContext context, params string[] outcomes) => context.CompleteActivityAsync(new Outcomes(outcomes));
 
     /// <summary>
     /// Complete the current activity with the specified outcome.
@@ -273,11 +569,57 @@ public static class ActivityExecutionContextExtensions
     /// </summary>
     public static async Task CancelActivityAsync(this ActivityExecutionContext context)
     {
+        // If the activity is not running, do nothing.
+        if (context.Status != ActivityStatus.Running && context.Status != ActivityStatus.Faulted)
+            return;
+
+        // Select all child contexts.
+        var childContexts = context.WorkflowExecutionContext.ActivityExecutionContexts.Where(x => x.ParentActivityExecutionContext == context).ToList();
+
+        foreach (var childContext in childContexts)
+            await CancelActivityAsync(childContext);
+
+        var publisher = context.GetRequiredService<INotificationSender>();
+        context.Status = ActivityStatus.Canceled;
         context.ClearBookmarks();
+        context.ClearCompletionCallbacks();
+        context.WorkflowExecutionContext.Bookmarks.RemoveWhere(x => x.ActivityNodeId == context.NodeId);
+
+        // Add an execution log entry.
+        context.AddExecutionLogEntry("Canceled", payload: context.JournalData, includeActivityState: true);
+
         await context.SendSignalAsync(new CancelSignal());
+        await publisher.SendAsync(new ActivityCancelled(context));
     }
 
-    public static ILogger GetLogger(this ActivityExecutionContext context) => (ILogger)context.GetRequiredService(typeof(ILogger<>).MakeGenericType(context.Activity.GetType()));
+    /// <summary>
+    /// Returns the first context that is associated with a <see cref="IVariableContainer"/>.
+    /// </summary>
+    public static ActivityExecutionContext? FindParentWithVariableContainer(this ActivityExecutionContext context)
+    {
+        return context.FindParent(x => x.Activity is IVariableContainer);
+    }
+
+    /// <summary>
+    /// Returns the first context in the hierarchy that matches the specified predicate.
+    /// </summary>
+    /// <param name="context">The context to start searching from.</param>
+    /// <param name="predicate">The predicate to match.</param>
+    /// <returns>The first context that matches the predicate or <c>null</c> if no match was found.</returns>
+    public static ActivityExecutionContext? FindParent(this ActivityExecutionContext context, Func<ActivityExecutionContext, bool> predicate)
+    {
+        var currentContext = context;
+
+        while (currentContext != null)
+        {
+            if (predicate(currentContext))
+                return currentContext;
+
+            currentContext = currentContext.ParentActivityExecutionContext;
+        }
+
+        return null;
+    }
 
     internal static bool GetHasEvaluatedProperties(this ActivityExecutionContext context) => context.TransientProperties.TryGetValue<bool>("HasEvaluatedProperties", out var value) && value;
     internal static void SetHasEvaluatedProperties(this ActivityExecutionContext context) => context.TransientProperties["HasEvaluatedProperties"] = true;

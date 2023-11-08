@@ -1,3 +1,7 @@
+using System;
+using System.Linq;
+using Elsa.Workflows.Core;
+using Elsa.Workflows.Core.Memory;
 using Elsa.Workflows.Core.Models;
 
 // ReSharper disable once CheckNamespace
@@ -10,13 +14,15 @@ internal static class OutputExtensions
     /// </summary>
     public static Type? GetTargetType(this Output? output, ActivityExecutionContext context)
     {
-        var memoryBlock = output?.MemoryBlockReference() is Variable variable
-            ? context.WorkflowExecutionContext.MemoryRegister.TryGetBlock(variable.Id, out var block)
-                ? block
-                : default
-            : default;
+        var memoryBlockReference = output?.MemoryBlockReference();
+        
+        if (memoryBlockReference is null)
+            return default;
 
-        var parsedContentVariableType = (memoryBlock?.Metadata as VariableBlockMetadata)?.Variable.GetType();
+        if(!context.ExpressionExecutionContext.TryGetBlock(memoryBlockReference, out var memoryBlock))
+            return default;
+        
+        var parsedContentVariableType = (memoryBlock.Metadata as VariableBlockMetadata)?.Variable.GetType();
         return parsedContentVariableType?.GenericTypeArguments.FirstOrDefault();
     }
 }

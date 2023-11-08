@@ -1,10 +1,11 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Elsa.Http.Contracts;
 using Elsa.Http.Models;
 using Elsa.Http.Options;
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Helpers;
-using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Management.Contracts;
 using Elsa.Workflows.Runtime.Contracts;
 using JetBrains.Annotations;
 using Microsoft.AspNetCore.Http;
@@ -12,6 +13,17 @@ using Microsoft.Extensions.Options;
 using System.Net;
 using System.Net.Mime;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Elsa.Extensions;
+using Elsa.Http.Bookmarks;
+using Elsa.Workflows.Core;
+using Elsa.Workflows.Core.Models;
+using Elsa.Workflows.Core.State;
+using Elsa.Workflows.Runtime.Filters;
+using Elsa.Workflows.Runtime.Matches;
+using Elsa.Workflows.Runtime.Options;
+using Elsa.Workflows.Runtime.Results;
 
 namespace Elsa.Http.Middleware;
 
@@ -25,9 +37,10 @@ public class WorkflowsMiddleware
     private readonly IWorkflowRuntime _workflowRuntime;
     private readonly IRouteMatcher _routeMatcher;
     private readonly IRouteTable _routeTable;
-    private readonly IWorkflowInstanceStore _workflowInstanceStore;
+    private readonly IEnumerable<IHttpCorrelationIdSelector> _correlationIdSelectors;
+    private readonly IEnumerable<IHttpWorkflowInstanceIdSelector> _workflowInstanceIdSelectors;
     private readonly IHttpBookmarkProcessor _httpBookmarkProcessor;
-    private readonly IHttpEndpointWorkflowFaultHandler _httpEndpointWorkflowFaultHandler;
+    private readonly IHttpEndpointFaultHandler _httpEndpointFaultHandler;
     private readonly IHttpEndpointAuthorizationHandler _httpEndpointAuthorizationHandler;
     private readonly IBookmarkStore _bookmarkStore;
     private readonly ITriggerStore _triggerStore;
@@ -42,24 +55,24 @@ public class WorkflowsMiddleware
     public WorkflowsMiddleware(
         RequestDelegate next,
         IWorkflowRuntime workflowRuntime,
-        IWorkflowInstanceStore workflowInstanceStore,
         IOptions<HttpActivityOptions> options,
         IHttpBookmarkProcessor httpBookmarkProcessor,
-        IHttpEndpointWorkflowFaultHandler httpEndpointWorkflowFaultHandler,
+        IHttpEndpointFaultHandler httpEndpointFaultHandler,
         IHttpEndpointAuthorizationHandler httpEndpointAuthorizationHandler,
         IBookmarkStore bookmarkStore,
         ITriggerStore triggerStore,
         IBookmarkHasher hasher,
         IBookmarkPayloadSerializer serializer,
         IRouteMatcher routeMatcher,
-        IRouteTable routeTable)
+        IRouteTable routeTable,
+        IEnumerable<IHttpCorrelationIdSelector> correlationIdSelectors,
+        IEnumerable<IHttpWorkflowInstanceIdSelector> workflowInstanceIdSelectors)
     {
         _next = next;
         _workflowRuntime = workflowRuntime;
-        _workflowInstanceStore = workflowInstanceStore;
         _options = options.Value;
         _httpBookmarkProcessor = httpBookmarkProcessor;
-        _httpEndpointWorkflowFaultHandler = httpEndpointWorkflowFaultHandler;
+        _httpEndpointFaultHandler = httpEndpointFaultHandler;
         _httpEndpointAuthorizationHandler = httpEndpointAuthorizationHandler;
         _bookmarkStore = bookmarkStore;
         _triggerStore = triggerStore;
@@ -67,6 +80,8 @@ public class WorkflowsMiddleware
         _serializer = serializer;
         _routeMatcher = routeMatcher;
         _routeTable = routeTable;
+        _correlationIdSelectors = correlationIdSelectors;
+        _workflowInstanceIdSelectors = workflowInstanceIdSelectors;
     }
 
     /// <summary>
@@ -75,7 +90,7 @@ public class WorkflowsMiddleware
     public async Task InvokeAsync(HttpContext httpContext)
     {
         var path = GetPath(httpContext);
-        var basePath = _options.BasePath;
+        var basePath = _options.BasePath?.ToString().NormalizeRoute();
 
         // If the request path does not match the configured base path to handle workflows, then skip.
         if (!string.IsNullOrWhiteSpace(basePath))
@@ -87,7 +102,7 @@ public class WorkflowsMiddleware
             }
 
             // Strip the base path.
-            path = path.Substring(basePath.Value.Value.Length);
+            path = path[basePath.Length..];
         }
 
         var matchingPath = GetMatchingRoute(path);
@@ -98,14 +113,13 @@ public class WorkflowsMiddleware
             [HttpEndpoint.RequestPathInputKey] = path
         };
 
-        // TODO: Get correlation ID from query string or header.
-        var correlationId = default(string);
-
-        var request = httpContext.Request;
-        var method = request.Method!.ToLowerInvariant();
-        var bookmarkPayload = new HttpEndpointBookmarkPayload(matchingPath, method);
-        var triggerOptions = new TriggerWorkflowsRuntimeOptions(correlationId, input);
         var cancellationToken = httpContext.RequestAborted;
+        var request = httpContext.Request;
+        var method = request.Method.ToLowerInvariant();
+        var correlationId = await GetCorrelationIdAsync(httpContext, httpContext.RequestAborted);
+        var workflowInstanceId = await GetWorkflowInstanceIdAsync(httpContext, httpContext.RequestAborted);
+        var bookmarkPayload = new HttpEndpointBookmarkPayload(matchingPath, method);
+        var triggerOptions = new TriggerWorkflowsOptions(correlationId, workflowInstanceId, default, input);
         var workflowsFilter = new WorkflowsFilter(_activityTypeName, bookmarkPayload, triggerOptions);
         var workflowMatches = (await _workflowRuntime.FindWorkflowsAsync(workflowsFilter, cancellationToken)).ToList();
 
@@ -115,16 +129,66 @@ public class WorkflowsMiddleware
         if (await HandleMultipleWorkflowsFoundAsync(httpContext, workflowMatches, cancellationToken))
             return;
 
-        if (await AuthorizeAsync(httpContext, workflowMatches.Single(), bookmarkPayload, cancellationToken))
+        var matchedWorkflow = workflowMatches.Single();
+
+        if (await AuthorizeAsync(httpContext, matchedWorkflow, bookmarkPayload, cancellationToken))
             return;
 
-        var executionResult = await _workflowRuntime.ExecuteWorkflowAsync(workflowMatches.Single(), input, cancellationToken);
+        // Get settings from the bookmark payload.
+        var foundBookmarkPayload = matchedWorkflow.Payload as HttpEndpointBookmarkPayload;
+        
+        // Get the configured request timeout, if any.
+        var requestTimeout = foundBookmarkPayload?.RequestTimeout;
 
-        if (await HandleWorkflowFaultAsync(httpContext, executionResult, cancellationToken))
+        if (requestTimeout == null)
+        {
+            // If no request timeout was configured, execute the workflow without a timeout.
+            await ExecuteWorkflowAsync(matchedWorkflow, correlationId, input, requestTimeout, httpContext, cancellationToken);
+            return;
+        }
+
+        // If a request timeout was configured, execute the workflow within the specified timeout.
+        await ExecuteWorkflowWithinTimeoutAsync(matchedWorkflow, correlationId, input, requestTimeout.Value, httpContext);
+    }
+
+    private async Task ExecuteWorkflowWithinTimeoutAsync(WorkflowMatch matchedWorkflow, string? correlationId, IDictionary<string, object> input, TimeSpan requestTimeout, HttpContext httpContext)
+    {
+        using var cts = new CancellationTokenSource(requestTimeout);
+        var originalCancellationToken = httpContext.RequestAborted;
+        var systemCancellationToken = originalCancellationToken;
+        httpContext.RequestAborted = cts.Token;
+        var applicationCancellationToken = cts.Token;
+        var cancellationTokens = new CancellationTokens(applicationCancellationToken, systemCancellationToken);
+
+        await ExecuteWorkflowAsync(matchedWorkflow, correlationId, input, requestTimeout, httpContext, cancellationTokens);
+    }
+
+    private async Task ExecuteWorkflowAsync(
+        WorkflowMatch matchedWorkflow,
+        string? correlationId,
+        IDictionary<string, object> input,
+        TimeSpan? requestTimeout,
+        HttpContext httpContext,
+        CancellationTokens cancellationTokens)
+    {
+        var systemCancellationToken = cancellationTokens.SystemCancellationToken;
+        var executionResult = await _workflowRuntime.ExecuteWorkflowAsync(matchedWorkflow, input, cancellationTokens);
+
+        if (await HandleWorkflowFaultAsync(httpContext, executionResult, systemCancellationToken))
             return;
 
         // Process the trigger result by resuming each HTTP bookmark, if any.
-        await _httpBookmarkProcessor.ProcessBookmarks(new List<WorkflowExecutionResult> { executionResult }, correlationId, input, cancellationToken);
+        var affectedWorkflowStates = await _httpBookmarkProcessor.ProcessBookmarks(
+            new List<WorkflowExecutionResult> { executionResult },
+            correlationId,
+            input,
+            cancellationTokens);
+
+        // Check if there were any errors.
+        var faultedWorkflowState = affectedWorkflowStates.FirstOrDefault(x => x.SubStatus == WorkflowSubStatus.Faulted);
+
+        if (faultedWorkflowState != null)
+            await HandleWorkflowFaultAsync(httpContext, faultedWorkflowState, systemCancellationToken);
     }
 
     private string GetMatchingRoute(string path)
@@ -139,6 +203,36 @@ public class WorkflowsMiddleware
         var routeTemplate = matchingRoute?.route ?? path;
 
         return routeTemplate;
+    }
+
+    private async Task<string?> GetCorrelationIdAsync(HttpContext httpContext, CancellationToken cancellationToken)
+    {
+        var correlationId = default(string);
+
+        foreach (var selector in _correlationIdSelectors.OrderByDescending(x => x.Priority))
+        {
+            correlationId = await selector.GetCorrelationIdAsync(httpContext, cancellationToken);
+
+            if (correlationId != null)
+                break;
+        }
+
+        return correlationId;
+    }
+
+    private async Task<string?> GetWorkflowInstanceIdAsync(HttpContext httpContext, CancellationToken cancellationToken)
+    {
+        var workflowInstanceId = default(string);
+
+        foreach (var selector in _workflowInstanceIdSelectors.OrderByDescending(x => x.Priority))
+        {
+            workflowInstanceId = await selector.GetWorkflowInstanceIdAsync(httpContext, cancellationToken);
+
+            if (workflowInstanceId != null)
+                break;
+        }
+
+        return workflowInstanceId;
     }
 
     private static async Task WriteResponseAsync(HttpContext httpContext, CancellationToken cancellationToken)
@@ -160,7 +254,7 @@ public class WorkflowsMiddleware
         }
     }
 
-    private string GetPath(HttpContext httpContext) => httpContext.Request.Path.Value.ToLowerInvariant();
+    private string GetPath(HttpContext httpContext) => httpContext.Request.Path.Value!.NormalizeRoute();
 
     private async Task<bool> HandleNoWorkflowsFoundAsync(HttpContext httpContext, ICollection<WorkflowMatch> workflowMatches, PathString? basePath)
     {
@@ -201,18 +295,19 @@ public class WorkflowsMiddleware
 
     private async Task<bool> HandleWorkflowFaultAsync(HttpContext httpContext, WorkflowExecutionResult workflowExecutionResult, CancellationToken cancellationToken)
     {
-        var instanceFilter = new WorkflowInstanceFilter { Id = workflowExecutionResult.InstanceId };
-        var workflowInstance = await _workflowInstanceStore.FindAsync(instanceFilter, cancellationToken);
+        var subStatus = workflowExecutionResult.SubStatus;
 
-        if (workflowInstance is not null
-            && workflowInstance.SubStatus == WorkflowSubStatus.Faulted
-            && !httpContext.Response.HasStarted)
-        {
-            await _httpEndpointWorkflowFaultHandler.HandleAsync(new HttpEndpointFaultedWorkflowContext(httpContext, workflowInstance, null, cancellationToken));
-            return true;
-        }
+        if (subStatus != WorkflowSubStatus.Faulted || httpContext.Response.HasStarted)
+            return false;
 
-        return false;
+        var workflowState = (await _workflowRuntime.ExportWorkflowStateAsync(workflowExecutionResult.WorkflowInstanceId, cancellationToken))!;
+        return await HandleWorkflowFaultAsync(httpContext, workflowState, cancellationToken);
+    }
+
+    private async Task<bool> HandleWorkflowFaultAsync(HttpContext httpContext, WorkflowState workflowState, CancellationToken cancellationToken)
+    {
+        await _httpEndpointFaultHandler.HandleAsync(new HttpEndpointFaultContext(httpContext, workflowState, cancellationToken));
+        return true;
     }
 
     private async Task<bool> AuthorizeAsync(
@@ -242,11 +337,11 @@ public class WorkflowsMiddleware
         {
             var triggerFilter = new TriggerFilter { Hash = hash };
             var trigger = (await _triggerStore.FindManyAsync(triggerFilter, cancellationToken)).First();
-            return _serializer.Deserialize<HttpEndpointBookmarkPayload>(trigger.Data!);
+            return trigger.GetPayload<HttpEndpointBookmarkPayload>();
         }
 
         var bookmarkFilter = new BookmarkFilter { Hash = hash };
         var bookmark = (await _bookmarkStore.FindManyAsync(bookmarkFilter, cancellationToken)).First();
-        return _serializer.Deserialize<HttpEndpointBookmarkPayload>(bookmark.Data!);
+        return bookmark.GetPayload<HttpEndpointBookmarkPayload>();
     }
 }

@@ -1,11 +1,12 @@
 using System.Text.Json;
 using Elsa.Abstractions;
 using Elsa.Common.Models;
-using Elsa.Workflows.Api.Models;
-using Elsa.Workflows.Core.Serialization;
+using Elsa.Workflows.Core.Contracts;
+using Elsa.Workflows.Core.Serialization.Converters;
 using Elsa.Workflows.Management.Contracts;
+using Elsa.Workflows.Management.Filters;
 using Elsa.Workflows.Management.Mappers;
-using Elsa.Workflows.Runtime.Contracts;
+using Elsa.Workflows.Management.Models;
 using Humanizer;
 
 namespace Elsa.Workflows.Api.Endpoints.WorkflowDefinitions.Export;
@@ -17,19 +18,19 @@ public class Export : ElsaEndpoint<Request>
 {
     private readonly IWorkflowDefinitionStore _store;
     private readonly IWorkflowDefinitionService _workflowDefinitionService;
-    private readonly SerializerOptionsProvider _serializerOptionsProvider;
+    private readonly IApiSerializer _serializer;
     private readonly VariableDefinitionMapper _variableDefinitionMapper;
 
     /// <inheritdoc />
     public Export(
         IWorkflowDefinitionStore store,
         IWorkflowDefinitionService workflowDefinitionService,
-        SerializerOptionsProvider serializerOptionsProvider,
+        IApiSerializer serializer,
         VariableDefinitionMapper variableDefinitionMapper)
     {
         _store = store;
         _workflowDefinitionService = workflowDefinitionService;
-        _serializerOptionsProvider = serializerOptionsProvider;
+        _serializer = serializer;
         _variableDefinitionMapper = variableDefinitionMapper;
     }
 
@@ -43,9 +44,8 @@ public class Export : ElsaEndpoint<Request>
     /// <inheritdoc />
     public override async Task HandleAsync(Request request, CancellationToken cancellationToken)
     {
-        var serializerOptions = _serializerOptionsProvider.CreateApiOptions();
         var versionOptions = request.VersionOptions != null ? VersionOptions.FromString(request.VersionOptions) : VersionOptions.Latest;
-        var definition = (await _store.FindManyAsync(new WorkflowDefinitionFilter{ DefinitionId = request.DefinitionId, VersionOptions = versionOptions}, cancellationToken: cancellationToken)).FirstOrDefault();
+        var definition = (await _store.FindManyAsync(new WorkflowDefinitionFilter { DefinitionId = request.DefinitionId, VersionOptions = versionOptions }, cancellationToken: cancellationToken)).FirstOrDefault();
 
         if (definition == null)
         {
@@ -63,13 +63,24 @@ public class Export : ElsaEndpoint<Request>
             definition.Description,
             definition.CreatedAt,
             definition.Version,
+            definition.ToolVersion,
             variables,
             definition.Inputs,
+            definition.Outputs,
+            definition.Outcomes,
             definition.CustomProperties,
+            definition.IsReadonly,
             definition.IsLatest,
             definition.IsPublished,
+            definition.Options,
+            default,
             workflow.Root);
 
+        var serializerOptions = _serializer.CreateOptions();
+        
+        // Exclude composite activities from being serialized.
+        serializerOptions.Converters.Add(new JsonIgnoreCompositeRootConverterFactory());
+        
         var binaryJson = JsonSerializer.SerializeToUtf8Bytes(model, serializerOptions);
         var hasWorkflowName = !string.IsNullOrWhiteSpace(definition.Name);
         var workflowName = hasWorkflowName ? definition.Name!.Trim() : definition.DefinitionId;

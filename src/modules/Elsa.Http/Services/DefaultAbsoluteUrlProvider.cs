@@ -1,14 +1,21 @@
+using System;
 using Elsa.Http.Contracts;
 using Elsa.Http.Options;
 using Microsoft.Extensions.Options;
 
 namespace Elsa.Http.Services;
 
+/// <inheritdoc />
 public class DefaultAbsoluteUrlProvider : IAbsoluteUrlProvider
 {
     private readonly IOptions<HttpActivityOptions> _options;
+    
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DefaultAbsoluteUrlProvider"/> class.
+    /// </summary>
     public DefaultAbsoluteUrlProvider(IOptions<HttpActivityOptions> options) => _options = options;
 
+    /// <inheritdoc />
     public Uri ToAbsoluteUrl(string relativePath)
     {
         var baseUrl = _options.Value.BaseUrl;

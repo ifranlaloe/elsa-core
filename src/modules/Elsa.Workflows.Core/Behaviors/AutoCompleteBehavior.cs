@@ -1,7 +1,5 @@
 using Elsa.Extensions;
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
 
 namespace Elsa.Workflows.Core.Behaviors;
 
@@ -19,7 +17,7 @@ public class AutoCompleteBehavior : Behavior
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
     {
         // If the activity created any bookmarks, do not complete. 
-        if (context.Bookmarks.Any(x => x.ActivityNodeId == context.ActivityNode.NodeId))
+        if (context.Bookmarks.Any(x => x.ActivityId == context.Activity.Id))
             return;
         
         await context.CompleteActivityAsync();

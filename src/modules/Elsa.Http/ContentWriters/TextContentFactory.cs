@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Net.Http;
 using System.Net.Mime;
 using System.Text;
 
@@ -8,7 +10,8 @@ namespace Elsa.Http.ContentWriters;
 /// </summary>
 public class TextContentFactory : IHttpContentFactory
 {
-    private readonly List<string> _supportedContentTypes = new()
+    /// <inheritdoc />
+    public IEnumerable<string> SupportedContentTypes => new[]
     {
         MediaTypeNames.Text.Plain,
         MediaTypeNames.Text.RichText,
@@ -16,16 +19,13 @@ public class TextContentFactory : IHttpContentFactory
     };
 
     /// <inheritdoc />
-    public bool SupportsContentType(string contentType) => _supportedContentTypes.Contains(contentType);
-
-    /// <inheritdoc />
     public HttpContent CreateHttpContent(object content, string contentType)
     {
-        var text = content as string ?? "";
+        var text = content as string ?? content.ToString();
 
         if (string.IsNullOrWhiteSpace(contentType))
             contentType = MediaTypeNames.Text.Plain;
         
-        return new StringContent(text, Encoding.UTF8, contentType);
+        return new StringContent(text!, Encoding.UTF8, contentType);
     }
 }

@@ -6,8 +6,10 @@ using Elsa.Telnyx.Attributes;
 using Elsa.Telnyx.Bookmarks;
 using Elsa.Telnyx.Events;
 using Elsa.Telnyx.Extensions;
-using Elsa.Telnyx.Payloads.Abstract;
+using Elsa.Telnyx.Payloads.Abstractions;
 using Elsa.Workflows.Runtime.Contracts;
+using Elsa.Workflows.Runtime.Models;
+using JetBrains.Annotations;
 using Microsoft.Extensions.Logging;
 
 namespace Elsa.Telnyx.Handlers;
@@ -15,14 +17,15 @@ namespace Elsa.Telnyx.Handlers;
 /// <summary>
 /// Triggers all workflows starting with or blocked on a <see cref="WebhookEvent"/> activity.
 /// </summary>
+[PublicAPI]
 internal class TriggerWebhookActivities : INotificationHandler<TelnyxWebhookReceived>
 {
-    private readonly IWorkflowRuntime _workflowRuntime;
+    private readonly IWorkflowInbox _workflowInbox;
     private readonly ILogger _logger;
 
-    public TriggerWebhookActivities(IWorkflowRuntime workflowRuntime, ILogger<TriggerWebhookActivities> logger)
+    public TriggerWebhookActivities(IWorkflowInbox workflowInbox, ILogger<TriggerWebhookActivities> logger)
     {
-        _workflowRuntime = workflowRuntime;
+        _workflowInbox = workflowInbox;
         _logger = logger;
     }
 
@@ -31,17 +34,22 @@ internal class TriggerWebhookActivities : INotificationHandler<TelnyxWebhookRece
         var webhook = notification.Webhook;
         var eventType = webhook.Data.EventType;
         var payload = webhook.Data.Payload;
-        var activityType = payload.GetType().GetCustomAttribute<WebhookAttribute>()?.ActivityType;
+        var activityType = payload.GetType().GetCustomAttribute<WebhookActivityAttribute>()?.ActivityType;
 
         if (activityType == null)
             return;
 
-        var correlationId = ((Payload)webhook.Data.Payload).GetCorrelationId();
-        var bookmarkPayload = new WebhookEventBookmarkPayload(eventType);
+        var workflowInstanceId = ((Payload)webhook.Data.Payload).GetClientStatePayload()?.WorkflowInstanceId;
+        var callControlId = (webhook.Data.Payload as CallPayload)?.CallControlId;
+        var bookmarkPayloadWithCallControl = new WebhookEventBookmarkPayload(eventType, callControlId);
         var input = new Dictionary<string, object>().AddInput(webhook);
         
-        _logger.LogDebug("Triggering {ActivityType} with correlation ID {CorrelationId}", activityType, correlationId);
-        var result = await _workflowRuntime.TriggerWorkflowsAsync(activityType, bookmarkPayload, new TriggerWorkflowsRuntimeOptions(correlationId, input), cancellationToken);
-        _logger.LogDebug("Triggered {WorkflowInstanceCount} workflows", result.TriggeredWorkflows.Count);
+        await _workflowInbox.SubmitAsync(new NewWorkflowInboxMessage
+        {
+            ActivityTypeName = activityType,
+            BookmarkPayload = bookmarkPayloadWithCallControl,
+            WorkflowInstanceId = workflowInstanceId,
+            Input = input
+        }, cancellationToken);
     }
 }

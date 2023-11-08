@@ -1,5 +1,4 @@
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Services;
 
 namespace Elsa.Workflows.Core.Models;
 
@@ -8,11 +7,18 @@ namespace Elsa.Workflows.Core.Models;
 /// </summary>
 public class ActivityNode
 {
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ActivityNode"/> class.
+    /// </summary>
+    /// <param name="activity">The activity.</param>
     public ActivityNode(IActivity activity)
     {
         Activity = activity;
     }
 
+    /// <summary>
+    /// Gets the node ID.
+    /// </summary>
     public string NodeId
     {
         get
@@ -22,10 +28,25 @@ public class ActivityNode
         }
     }
 
+    /// <summary>
+    /// Gets the activity.
+    /// </summary>
     public IActivity Activity { get; }
+    
+    /// <summary>
+    /// Gets the parents of this node.
+    /// </summary>
     public ICollection<ActivityNode> Parents { get; set; } = new List<ActivityNode>();
+    
+    /// <summary>
+    /// Gets the children of this node.
+    /// </summary>
     public ICollection<ActivityNode> Children { get; set; } = new List<ActivityNode>();
 
+    /// <summary>
+    /// Gets the descendants of this node.
+    /// </summary>
+    /// <returns></returns>
     public IEnumerable<ActivityNode> Descendants()
     {
         foreach (var child in Children)
@@ -39,6 +60,9 @@ public class ActivityNode
         }
     }
 
+    /// <summary>
+    /// Gets the ancestors of this node.
+    /// </summary>
     public IEnumerable<ActivityNode> Ancestors()
     {
         foreach (var parent in Parents)
@@ -52,6 +76,14 @@ public class ActivityNode
         }
     }
 
+    /// <summary>
+    /// Gets the siblings of this node.
+    /// </summary>
     public IEnumerable<ActivityNode> Siblings() => Parents.SelectMany(parent => parent.Children);
+    
+    /// <summary>
+    /// Gets the siblings and cousins of this node.
+    /// </summary>
+    /// <returns></returns>
     public IEnumerable<ActivityNode> SiblingsAndCousins() => Parents.SelectMany(parent => parent.Descendants());
 }

@@ -30,14 +30,22 @@ public class BookmarkHasher : IBookmarkHasher
     }
 
     /// <inheritdoc />
-    public string Hash(string activityTypeName, object? payload)
+    public string Hash(string activityTypeName, object? payload, string? activityInstanceId = default)
     {
         var json = payload != null ? Serialize(payload) : null;
-        var input = $"{activityTypeName}{(!string.IsNullOrWhiteSpace(json) ? ":" + json : "")}";
+        var inputSource = new List<string> { activityTypeName};
+        
+        if (!string.IsNullOrWhiteSpace(json))
+            inputSource.Add(json);
+        
+        if (!string.IsNullOrWhiteSpace(activityInstanceId))
+            inputSource.Add(activityInstanceId);
+        
+        var input = string.Join("|", inputSource);
         var hash = _hasher.Hash(input);
 
         return hash;
     }
 
-    private string? Serialize(object payload) => JsonSerializer.Serialize(payload, payload.GetType(), _settings);
+    private string Serialize(object payload) => JsonSerializer.Serialize(payload, payload.GetType(), _settings);
 }

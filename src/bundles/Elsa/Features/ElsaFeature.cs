@@ -1,8 +1,8 @@
+using Elsa.Common.Features;
 using Elsa.Extensions;
 using Elsa.Features.Abstractions;
 using Elsa.Features.Attributes;
 using Elsa.Features.Services;
-using Elsa.Mediator.Features;
 using Elsa.Workflows.Core.Activities;
 using Elsa.Workflows.Core.Features;
 using Elsa.Workflows.Management.Features;
@@ -16,7 +16,7 @@ namespace Elsa.Features;
 [DependsOn(typeof(MediatorFeature))]
 [DependsOn(typeof(WorkflowsFeature))]
 [DependsOn(typeof(FlowchartFeature))]
-[DependsOn(typeof(WorkflowRuntimeFeature))]
+[DependsOn(typeof(DefaultWorkflowRuntimeFeature))]
 [DependsOn(typeof(WorkflowManagementFeature))]
 public class ElsaFeature : FeatureBase
 {
@@ -35,8 +35,8 @@ public class ElsaFeature : FeatureBase
     {
         Module
             .UseWorkflows(workflows => workflows
-                .WithDefaultRuntimeWorkflowExecutionPipeline()
-                .WithJobBasedActivityExecutionPipeline())
+                .WithDefaultWorkflowExecutionPipeline()
+                .WithBackgroundActivityExecutionPipeline())
             .UseWorkflowManagement(management =>
             {
                 if (!DisableAutomaticActivityRegistration)

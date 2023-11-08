@@ -1,6 +1,10 @@
+using System;
 using System.Dynamic;
+using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
 using Elsa.Expressions.Helpers;
 using Elsa.Http.Contracts;
 using Elsa.Workflows.Core.Serialization.Converters;
@@ -34,10 +38,10 @@ public class JsonHttpContentParser : IHttpContentParser
         if (returnType == null || returnType.IsPrimitive)
             return json.ConvertTo(returnType ?? typeof(string))!;
 
-        if (returnType != typeof(ExpandoObject)) 
+        if (returnType != typeof(ExpandoObject) && returnType != typeof(object)) 
             return JsonSerializer.Deserialize(json, returnType, options)!;
         
-        options.Converters.Add(new ExpandoObjectConverter());
+        options.Converters.Add(new ExpandoObjectConverterFactory());
         return JsonSerializer.Deserialize<object>(json, options)!;
     }
 }

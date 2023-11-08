@@ -1,7 +1,8 @@
-using System.Text.Json;
+using System.Collections.Generic;
+using System.Linq;
 using Elsa.Http;
+using Elsa.Http.Bookmarks;
 using Elsa.Http.Contracts;
-using Elsa.Http.Models;
 using Elsa.Workflows.Core.Helpers;
 using Elsa.Workflows.Core.Models;
 using Elsa.Workflows.Runtime.Entities;
@@ -14,31 +15,30 @@ namespace Elsa.Extensions;
 /// </summary>
 public static class RouteTableExtensions
 {
-    private static readonly JsonSerializerOptions SerializerOptions;
-
-    static RouteTableExtensions()
-    {
-        SerializerOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
-    }
-    
     /// <summary>
     /// Adds routes from the specified set of triggers.
     /// </summary>
     public static void AddRoutes(this IRouteTable routeTable, IEnumerable<StoredTrigger> triggers)
     {
-        var paths = Filter(triggers).Select(Deserialize).Select(x => x.Path).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+        var paths = Filter(triggers).Select(x => x.GetPayload<HttpEndpointBookmarkPayload>().Path).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
         routeTable.AddRange(paths);
     }
 
     /// <summary>
     /// Adds routes from the specified set of bookmarks.
     /// </summary>
+    public static void AddRoutes(this IRouteTable routeTable, IEnumerable<StoredBookmark> bookmarks)
+    {
+        var paths = Filter(bookmarks).Select(x => x.GetPayload<HttpEndpointBookmarkPayload>().Path).ToList();
+        routeTable.AddRange(paths);
+    }
+    
+    /// <summary>
+    /// Adds routes from the specified set of bookmarks.
+    /// </summary>
     public static void AddRoutes(this IRouteTable routeTable, IEnumerable<Bookmark> bookmarks)
     {
-        var paths = Filter(bookmarks).Select(Deserialize).Select(x => x.Path).ToList();
+        var paths = Filter(bookmarks).Select(x => x.GetPayload<HttpEndpointBookmarkPayload>().Path).ToList();
         routeTable.AddRange(paths);
     }
 
@@ -47,7 +47,7 @@ public static class RouteTableExtensions
     /// </summary>
     public static void RemoveRoutes(this IRouteTable routeTable, IEnumerable<StoredTrigger> triggers)
     {
-        var paths = Filter(triggers).Select(Deserialize).Select(x => x.Path).ToList();
+        var paths = Filter(triggers).Select(x => x.GetPayload<HttpEndpointBookmarkPayload>().Path).ToList();
         routeTable.RemoveRange(paths);
     }
 
@@ -56,13 +56,25 @@ public static class RouteTableExtensions
     /// </summary>
     public static void RemoveRoutes(this IRouteTable routeTable, IEnumerable<Bookmark> bookmarks)
     {
-        var paths = Filter(bookmarks).Select(Deserialize).Select(x => x.Path).ToList();
+        var paths = Filter(bookmarks).Select(x => x.GetPayload<HttpEndpointBookmarkPayload>().Path).ToList();
         routeTable.RemoveRange(paths);
     }
 
-    private static IEnumerable<StoredTrigger> Filter(IEnumerable<StoredTrigger> triggers) => triggers.Where(x => x.Name == ActivityTypeNameHelper.GenerateTypeName<HttpEndpoint>() && x.Data != null);
-    private static IEnumerable<Bookmark> Filter(IEnumerable<Bookmark> triggers) => triggers.Where(x => x.Name == ActivityTypeNameHelper.GenerateTypeName<HttpEndpoint>() && x.Data != null);
-    private static HttpEndpointBookmarkPayload Deserialize(StoredTrigger trigger) => Deserialize(trigger.Data!);
-    private static HttpEndpointBookmarkPayload Deserialize(Bookmark bookmark) => Deserialize(bookmark.Data!);
-    private static HttpEndpointBookmarkPayload Deserialize(string model) => JsonSerializer.Deserialize<HttpEndpointBookmarkPayload>(model, SerializerOptions)!;
+    private static IEnumerable<StoredTrigger> Filter(IEnumerable<StoredTrigger> triggers)
+    {
+        var triggerName = ActivityTypeNameHelper.GenerateTypeName<HttpEndpoint>();
+        return triggers.Where(x => x.Name == triggerName && x.Payload != null);
+    }
+
+    private static IEnumerable<StoredBookmark> Filter(IEnumerable<StoredBookmark> bookmarks)
+    {
+        var activityTypeName = ActivityTypeNameHelper.GenerateTypeName<HttpEndpoint>();
+        return bookmarks.Where(x => x.ActivityTypeName == activityTypeName && x.Payload != null);
+    }
+    
+    private static IEnumerable<Bookmark> Filter(IEnumerable<Bookmark> bookmarks)
+    {
+        var bookmarkName = ActivityTypeNameHelper.GenerateTypeName<HttpEndpoint>();
+        return bookmarks.Where(x => x.Name == bookmarkName && x.Payload != null);
+    }
 }

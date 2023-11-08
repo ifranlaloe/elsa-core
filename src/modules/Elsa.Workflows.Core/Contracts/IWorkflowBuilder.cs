@@ -1,3 +1,5 @@
+using Elsa.Workflows.Core.Activities;
+using Elsa.Workflows.Core.Memory;
 using Elsa.Workflows.Core.Models;
 
 namespace Elsa.Workflows.Core.Contracts;
@@ -31,7 +33,13 @@ public interface IWorkflowBuilder
     /// A description of the workflow.
     /// </summary>
     string? Description { get; set; }
-    
+
+
+    /// <summary>
+    /// WorkflowDefinition is readonly.
+    /// </summary>
+    bool IsReadonly { get; set; }
+
     /// <summary>
     /// Options for the workflow being built.
     /// </summary>
@@ -46,6 +54,21 @@ public interface IWorkflowBuilder
     /// The workflow variables to store with the workflow being built.
     /// </summary>
     ICollection<Variable> Variables { get; set; }
+    
+    /// <summary>
+    /// Gets or sets the inputs.
+    /// </summary>
+    ICollection<InputDefinition> Inputs { get; set; }
+    
+    /// <summary>
+    /// Gets or sets the outputs.
+    /// </summary>
+    ICollection<OutputDefinition> Outputs { get; set; }
+    
+    /// <summary>
+    /// Gets or sets the outcomes.
+    /// </summary>
+    ICollection<string> Outcomes { get; set; }
 
     /// <summary>
     /// An internal variable used to get and set the result of the workflow.
@@ -100,7 +123,7 @@ public interface IWorkflowBuilder
     /// <summary>
     /// Build a new <see cref="Workflow"/> instance using the information collected in this pipelineBuilder.
     /// </summary>
-    Workflow BuildWorkflow();
+    Task<Workflow> BuildWorkflowAsync(CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Creates a new <see cref="Workflow"/> instance using the specified <see cref="IWorkflow"/> definition.

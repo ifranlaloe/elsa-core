@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Runtime.CompilerServices;
 using Elsa.Extensions;
 using Elsa.Telnyx.Client.Models;
 using Elsa.Telnyx.Client.Services;
@@ -8,7 +8,6 @@ using Elsa.Telnyx.Options;
 using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Management.Models;
 using Microsoft.Extensions.Options;
 
 namespace Elsa.Telnyx.Activities;
@@ -20,8 +19,7 @@ namespace Elsa.Telnyx.Activities;
 public class Dial : CodeActivity<DialResponse>
 {
     /// <inheritdoc />
-    [JsonConstructor]
-    public Dial(string? source = default, int? line = default) : base(source, line)
+    public Dial([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }
 
@@ -55,7 +53,7 @@ public class Dial : CodeActivity<DialResponse>
     public Input<string?> AnsweringMachineDetection { get; set; } = new("disabled");
 
     /// <summary>
-    /// Enables answering machine detection.
+    /// Start recording automatically after an event. Disabled by default.
     /// </summary>
     [Input(Description = "Start recording automatically after an event. Disabled by default.")]
     public Input<bool> Record { get; set; } = default!;
@@ -86,17 +84,17 @@ public class Dial : CodeActivity<DialResponse>
         if (callControlAppId == null)
             throw new MissingCallControlAppIdException("No Call Control ID configured");
 
-        var fromNumber = From.TryGet(context);
+        var fromNumber = From.GetOrDefault(context);
         var clientState = context.CreateCorrelatingClientState();
 
         var request = new DialRequest(
             callControlAppId,
             To.Get(context),
             fromNumber,
-            FromDisplayName.TryGet(context).SanitizeCallerName(),
-            AnsweringMachineDetection.TryGet(context),
-            Record: Record.TryGet(context) == true ? "record-from-answer" : default,
-            RecordFormat: RecordFormat.TryGet(context) ?? "mp3",
+            FromDisplayName.GetOrDefault(context).SanitizeCallerName(),
+            AnsweringMachineDetection.GetOrDefault(context),
+            Record: Record.GetOrDefault(context) ? "record-from-answer" : default,
+            RecordFormat: RecordFormat.GetOrDefault(context) ?? "mp3",
             ClientState: clientState
         );
 

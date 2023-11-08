@@ -1,10 +1,7 @@
-using System.Text.Json;
-using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Serialization;
-using Elsa.Workflows.Core.Services;
+using Elsa.Workflows.Core.Activities;
 using Elsa.Workflows.Management.Contracts;
 using Elsa.Workflows.Management.Entities;
+using Elsa.Workflows.Management.Mappers;
 
 namespace Elsa.Workflows.Management.Materializers;
 
@@ -13,18 +10,22 @@ namespace Elsa.Workflows.Management.Materializers;
 /// </summary>
 public class JsonWorkflowMaterializer : IWorkflowMaterializer
 {
-    private readonly SerializerOptionsProvider _serializerOptionsProvider;
+    private readonly WorkflowDefinitionMapper _workflowDefinitionMapper;
+
+    /// <summary>
+    /// The name of the materializer.
+    /// </summary>
     public const string MaterializerName = "Json";
 
     /// <inheritdoc />
     public string Name => MaterializerName;
 
     /// <summary>
-    /// Constructor.
+    /// Initializes a new instance of the <see cref="JsonWorkflowMaterializer"/> class.
     /// </summary>
-    public JsonWorkflowMaterializer(SerializerOptionsProvider serializerOptionsProvider)
+    public JsonWorkflowMaterializer(WorkflowDefinitionMapper workflowDefinitionMapper)
     {
-        _serializerOptionsProvider = serializerOptionsProvider;
+        _workflowDefinitionMapper = workflowDefinitionMapper;
     }
 
     /// <inheritdoc />
@@ -34,17 +35,5 @@ public class JsonWorkflowMaterializer : IWorkflowMaterializer
         return new ValueTask<Workflow>(workflow);
     }
 
-    private Workflow ToWorkflow(WorkflowDefinition definition)
-    {
-        var root = JsonSerializer.Deserialize<IActivity>(definition.StringData!, _serializerOptionsProvider.CreateDefaultOptions())!;
-        
-        return new(
-            new WorkflowIdentity(definition.DefinitionId, definition.Version, definition.Id),
-            new WorkflowPublication(definition.IsLatest, definition.IsPublished),
-            new WorkflowMetadata(definition.Name, definition.Description, definition.CreatedAt),
-            definition.Options,
-            root,
-            definition.Variables,
-            definition.CustomProperties);
-    }
+    private Workflow ToWorkflow(WorkflowDefinition definition) => _workflowDefinitionMapper.Map(definition);
 }

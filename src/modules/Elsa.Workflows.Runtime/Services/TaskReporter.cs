@@ -2,7 +2,7 @@ using Elsa.Workflows.Core.Helpers;
 using Elsa.Workflows.Runtime.Activities;
 using Elsa.Workflows.Runtime.Bookmarks;
 using Elsa.Workflows.Runtime.Contracts;
-using Elsa.Workflows.Runtime.Models;
+using Elsa.Workflows.Runtime.Requests;
 
 namespace Elsa.Workflows.Runtime.Services;
 
@@ -22,7 +22,7 @@ public class TaskReporter : ITaskReporter
     /// <inheritdoc />
     public async Task ReportCompletionAsync(string taskId, object? result = default, CancellationToken cancellationToken = default)
     {
-        var bookmarkPayload = new RunTaskBookmarkPayload(taskId);
+        var bookmarkPayload = new RunTaskBookmarkPayload(taskId, default!);
 
         var input = new Dictionary<string, object>
         {

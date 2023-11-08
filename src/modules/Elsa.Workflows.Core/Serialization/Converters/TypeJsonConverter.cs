@@ -2,12 +2,14 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Elsa.Expressions.Contracts;
 using Elsa.Extensions;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Core.Serialization.Converters;
 
 /// <summary>
 /// Serializes <see cref="Type"/> objects to a simple alias representing the type.
 /// </summary>
+[PublicAPI]
 public class TypeJsonConverter : JsonConverter<Type>
 {
     private readonly IWellKnownTypeRegistry _wellKnownTypeRegistry;
@@ -33,7 +35,7 @@ public class TypeJsonConverter : JsonConverter<Type>
         if (typeAlias.EndsWith("[]"))
         {
             var elementTypeAlias = typeAlias[..^"[]".Length];
-            var elementType = _wellKnownTypeRegistry.TryGetType(typeAlias, out var t) ? t : Type.GetType(elementTypeAlias)!;
+            var elementType = _wellKnownTypeRegistry.TryGetType(elementTypeAlias, out var t) ? t : Type.GetType(elementTypeAlias)!;
             return typeof(List<>).MakeGenericType(elementType);
         }
 
@@ -44,7 +46,7 @@ public class TypeJsonConverter : JsonConverter<Type>
     public override void Write(Utf8JsonWriter writer, Type value, JsonSerializerOptions options)
     {
         // Handle collection types.
-        if (value.IsGenericType && value.GenericTypeArguments.Length == 1)
+        if (value is { IsGenericType: true, GenericTypeArguments.Length: 1 })
         {
             var elementType = value.GenericTypeArguments.First();
             var typedEnumerable = typeof(IEnumerable<>).MakeGenericType(elementType);

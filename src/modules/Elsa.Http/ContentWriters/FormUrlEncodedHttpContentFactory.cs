@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -8,10 +11,8 @@ namespace Elsa.Http.ContentWriters;
 /// </summary>
 public class FormUrlEncodedHttpContentFactory : IHttpContentFactory
 {
-    private readonly List<string> _supportedContentTypes = new() { "application/x-www-form-urlencoded" };
-
     /// <inheritdoc />
-    public bool SupportsContentType(string contentType) => _supportedContentTypes.Contains(contentType);
+    public IEnumerable<string> SupportedContentTypes => new[] { "application/x-www-form-urlencoded" };
 
     /// <inheritdoc />
     public HttpContent CreateHttpContent(object content, string? contentType = null) => new FormUrlEncodedContent(GetContentAsDictionary(content));

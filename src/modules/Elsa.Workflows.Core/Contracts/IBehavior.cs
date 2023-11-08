@@ -1,7 +1,8 @@
-using Elsa.Workflows.Core.Models;
-
 namespace Elsa.Workflows.Core.Contracts;
 
+/// <summary>
+/// Represents a behavior that can be attached to an activity.
+/// </summary>
 public interface IBehavior : ISignalHandler
 {
     /// <summary>

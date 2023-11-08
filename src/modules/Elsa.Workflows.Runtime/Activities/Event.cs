@@ -1,9 +1,12 @@
 using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
 using Elsa.Expressions.Models;
 using Elsa.Extensions;
+using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Attributes;
+using Elsa.Workflows.Core.Memory;
 using Elsa.Workflows.Core.Models;
+using Elsa.Workflows.Runtime.Bookmarks;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Runtime.Activities;
 
@@ -11,14 +14,9 @@ namespace Elsa.Workflows.Runtime.Activities;
 /// Wait for an event to be triggered.
 /// </summary>
 [Activity("Elsa", "Primitives", "Wait for an event to be published.")]
+[PublicAPI]
 public class Event : Trigger<object?>
 {
-    /// <inheritdoc />
-    [JsonConstructor]
-    public Event()
-    {
-    }
-    
     /// <inheritdoc />
     internal Event([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
@@ -77,7 +75,12 @@ public class Event : Trigger<object?>
 
         if (!context.IsTriggerOfWorkflow())
         {
-            context.CreateBookmark(new EventBookmarkPayload(eventName));
+            var options = new CreateBookmarkArgs
+            {
+                Payload = new EventBookmarkPayload(eventName),
+                IncludeActivityInstanceId = false
+            };
+            context.CreateBookmark(options);
             return;
         }
 

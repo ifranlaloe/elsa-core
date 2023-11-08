@@ -1,3 +1,7 @@
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Elsa.Expressions.Helpers;
 using Elsa.Http.Contracts;
 
@@ -12,7 +16,7 @@ public class StringHttpContentParser : IHttpContentParser
     public int Priority => -10;
 
     /// <inheritdoc />
-    public bool GetSupportsContentType(string contentType) => true;
+    public bool GetSupportsContentType(string contentType) => !contentType.StartsWith("multipart/form-data");
 
     /// <inheritdoc />
     public async Task<object> ReadAsync(Stream content, Type? returnType, CancellationToken cancellationToken)

@@ -1,6 +1,11 @@
-using Elsa.Workflows.Core.Models;
-
 namespace Elsa.Workflows.Core.Services;
 
+/// <summary>
+/// A delegate that executes an activity.
+/// </summary>
 public delegate ValueTask ExecuteActivityDelegate(ActivityExecutionContext context);
-public delegate ValueTask ActivityCompletionCallback(ActivityExecutionContext context, ActivityExecutionContext childContext);
+
+/// <summary>
+/// A delegate that executes an activity when its child activities have completed.
+/// </summary>
+public delegate ValueTask ActivityCompletionCallback(ActivityCompletedContext context);

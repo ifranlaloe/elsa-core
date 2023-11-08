@@ -1,24 +1,32 @@
-using System.Text.Json.Serialization;
-using Elsa.Common.Entities;
+using System.ComponentModel.DataAnnotations.Schema;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Serialization.Converters;
 
 namespace Elsa.Workflows.Core.State;
 
 /// <summary>
 /// Represents the current state of a workflow. 
 /// </summary>
-public class WorkflowState : Entity
+public class WorkflowState
 {
+    /// <summary>
+    /// Gets or sets the ID.
+    /// </summary>
+    public string Id { get; set; } = default!;
+    
     /// <summary>
     /// The workflow definition ID.
     /// </summary>
     public string DefinitionId { get; set; } = default!;
     
     /// <summary>
+    /// The workflow definition version ID.
+    /// </summary>
+    public string DefinitionVersionId { get; set; } = default!;
+    
+    /// <summary>
     /// The workflow definition version.
     /// </summary>
-    public int DefinitionVersion { get; set; } = default!;
+    public int DefinitionVersion { get; set; }
 
     /// <summary>
     /// The correlation ID of the workflow, if any.
@@ -38,12 +46,12 @@ public class WorkflowState : Entity
     /// <summary>
     /// Collected bookmarks.
     /// </summary>
-    public ICollection<Bookmark> Bookmarks { get; set; } = new List<Bookmark>();
-
+    [NotMapped]public ICollection<Bookmark> Bookmarks { get; set; } = new List<Bookmark>();
+    
     /// <summary>
-    /// The serialized workflow state, if any. 
+    /// A collection of incidents that may have occurred during execution.
     /// </summary>
-    public WorkflowFaultState? Fault { get; set; }
+    public ICollection<ActivityIncident> Incidents { get; set; } = new List<ActivityIncident>();
 
     /// <summary>
     /// A list of callbacks that activities registered in order to be notified when the activities they scheduled complete. 
@@ -53,7 +61,23 @@ public class WorkflowState : Entity
     /// <summary>
     /// A flattened list of <see cref="ActivityExecutionContextState"/> objects, representing the various active "call stacks" of the workflow.
     /// </summary>
+    [NotMapped]
     public ICollection<ActivityExecutionContextState> ActivityExecutionContexts { get; set; } = new List<ActivityExecutionContextState>();
+    
+    /// <summary>
+    /// A list of scheduled activities.
+    /// </summary>
+    public ICollection<ActivityWorkItemState> ScheduledActivities { get; set; } = new List<ActivityWorkItemState>();
+    
+    /// <summary>
+    /// The current execution log sequence number.
+    /// </summary>
+    public long ExecutionLogSequence { get; set; }
+    
+    /// <summary>
+    /// A dictionary of inputs sent to the workflow.
+    /// </summary>
+    public IDictionary<string, object> Input { get; set; } = new Dictionary<string, object>();
     
     /// <summary>
     /// A dictionary of outputs produced by the workflow.
@@ -63,6 +87,20 @@ public class WorkflowState : Entity
     /// <summary>
     /// A global property bag that contains properties set by application code and/or activities.
     /// </summary>
-    [JsonConverter(typeof(PropertyBagConverter))]
-    public PropertyBag Properties { get; set; } = new();
+    public IDictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
+    
+    /// <summary>
+    /// The created time of the workflow.
+    /// </summary>
+    public DateTimeOffset CreatedAt { get; set; }
+    
+    /// <summary>
+    /// The last updated time of the workflow.
+    /// </summary>
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>
+    /// The finished time of the workflow.
+    /// </summary>
+    public DateTimeOffset? FinishedAt { get; set; }
 }

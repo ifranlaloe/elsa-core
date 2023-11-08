@@ -1,7 +1,5 @@
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Middleware.Activities;
-using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
 
 namespace Elsa.Workflows.Core.Pipelines.ActivityExecution;
 
@@ -14,9 +12,10 @@ public class ActivityExecutionPipeline : IActivityExecutionPipeline
     /// <summary>
     /// Constructor.
     /// </summary>
-    public ActivityExecutionPipeline(IServiceProvider serviceProvider)
+    public ActivityExecutionPipeline(IServiceProvider serviceProvider, Action<IActivityExecutionPipelineBuilder> pipelineBuilder)
     {
         _serviceProvider = serviceProvider;
+        Setup(pipelineBuilder);
     }
 
     /// <inheritdoc />
@@ -37,6 +36,7 @@ public class ActivityExecutionPipeline : IActivityExecutionPipeline
     private ActivityMiddlewareDelegate CreateDefaultPipeline() => Setup(x => x
         .UseExceptionHandling()
         .UseExecutionLogging()
+        .UseNotifications()
         .UseDefaultActivityInvoker()
     );
 }

@@ -1,16 +1,13 @@
 using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
 using Elsa.Expressions.Models;
 using Elsa.Extensions;
 using Elsa.Telnyx.Bookmarks;
-using Elsa.Telnyx.Extensions;
 using Elsa.Telnyx.Helpers;
 using Elsa.Telnyx.Models;
 using Elsa.Telnyx.Payloads.Call;
 using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Management.Models;
 
 namespace Elsa.Telnyx.Activities;
 
@@ -25,11 +22,10 @@ namespace Elsa.Telnyx.Activities;
 public class IncomingCall : Trigger<CallInitiatedPayload>
 {
     /// <inheritdoc />
-    [JsonConstructor]
     public IncomingCall([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }
-    
+
     /// <summary>
     /// A list of destination numbers to respond to.
     /// </summary>
@@ -67,29 +63,21 @@ public class IncomingCall : Trigger<CallInitiatedPayload>
 
     private async ValueTask ResumeAsync(ActivityExecutionContext context)
     {
-        var webhookModel = context.GetInput<TelnyxWebhook>(WebhookSerializerOptions.Create());
+        var webhookModel = context.GetWorkflowInput<TelnyxWebhook>(WebhookSerializerOptions.Create());
         var callInitiatedPayload = (CallInitiatedPayload)webhookModel.Data.Payload;
 
-        // Correlate workflow with call session ID.
-        // TODO: Add support for multiple correlation ID keys.
-        context.WorkflowExecutionContext.CorrelationId = callInitiatedPayload.CallSessionId;
-            
-        // Associate workflow with inbound call control ID and from number.
-        context.SetPrimaryCallControlId(callInitiatedPayload.CallControlId);
-        context.SetFrom(callInitiatedPayload.From);
-            
         // Store webhook payload as output.
-        context.Set(Result, callInitiatedPayload);
+        Result.Set(context, callInitiatedPayload);
 
         await context.CompleteActivityAsync();
     }
-        
+
     private IEnumerable<object> GetBookmarkPayloads(ExpressionExecutionContext context)
     {
         var from = context.Get(From) ?? ArraySegment<string>.Empty;
         var to = context.Get(To) ?? ArraySegment<string>.Empty;
         var catchAll = context.Get(CatchAll);
-                
+
         foreach (var phoneNumber in from) yield return new IncomingCallFromBookmarkPayload(phoneNumber);
         foreach (var phoneNumber in to) yield return new IncomingCallToBookmarkPayload(phoneNumber);
 

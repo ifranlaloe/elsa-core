@@ -1,3 +1,4 @@
+using System.Reflection;
 using Elsa.Features.Services;
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Runtime.Features;
@@ -18,6 +19,15 @@ public static class ModuleExtensions
         module.Configure(configure);
         return module;
     }
+    
+    /// <summary>
+    /// Enables the <see cref="WorkflowRuntimeFeature"/> and configures it to use the default workflow runtime.
+    /// </summary>
+    public static WorkflowRuntimeFeature UseDefaultWorkflowRuntime(this WorkflowRuntimeFeature runtime, Action<DefaultWorkflowRuntimeFeature>? configureDefaultRuntime = default)
+    {
+        runtime.Module.Configure(configureDefaultRuntime);
+        return runtime;
+    }
 
     /// <summary>
     /// Register the specified workflow type.
@@ -27,20 +37,28 @@ public static class ModuleExtensions
         module.Configure<WorkflowRuntimeFeature>().AddWorkflow<T>();
         return module;
     }
+
+    /// <summary>
+    /// Register all workflows contained in the assembly containing the specified marker type.
+    /// </summary>
+    public static IModule AddWorkflowsFrom<TMarker>(this IModule module) => module.AddWorkflowsFrom(typeof(TMarker).Assembly);
     
-    public static WorkflowRuntimeFeature UseDefaultRuntime(this WorkflowRuntimeFeature feature, Action<DefaultRuntimeFeature>? configure = default)
+    /// <summary>
+    /// Register all workflows in the specified assembly.
+    /// </summary>
+    public static IModule AddWorkflowsFrom(this IModule module, Assembly assembly)
     {
-        feature.Module.Configure(configure);
-        return feature;
+        module.Configure<WorkflowRuntimeFeature>().AddWorkflowsFrom(assembly);
+        return module;
     }
     
-    public static WorkflowRuntimeFeature UseExecutionLogRecords(this WorkflowRuntimeFeature feature, Action<ExecutionLogRecordFeature>? configure = default)
-    {
-        feature.Module.Configure(configure);
-        return feature;
-    }
-    
-    public static WorkflowRuntimeFeature UseAsyncWorkflowStateExporter(this WorkflowRuntimeFeature feature, Action<AsyncWorkflowStateExporterFeature>? configure = default)
+    /// <summary>
+    /// Configures the default workflow runtime.
+    /// </summary>
+    /// <param name="feature">The workflow runtime feature.</param>
+    /// <param name="configure">A callback that configures the default workflow runtime.</param>
+    /// <returns>The workflow runtime feature.</returns>
+    public static WorkflowRuntimeFeature UseDefaultRuntime(this WorkflowRuntimeFeature feature, Action<DefaultWorkflowRuntimeFeature>? configure = default)
     {
         feature.Module.Configure(configure);
         return feature;

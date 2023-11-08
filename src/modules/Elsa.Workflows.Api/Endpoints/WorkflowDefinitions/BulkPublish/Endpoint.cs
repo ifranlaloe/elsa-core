@@ -1,7 +1,7 @@
 using Elsa.Abstractions;
 using Elsa.Common.Models;
-using Elsa.Workflows.Core.Serialization;
 using Elsa.Workflows.Management.Contracts;
+using Elsa.Workflows.Management.Filters;
 using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Api.Endpoints.WorkflowDefinitions.BulkPublish;
@@ -12,7 +12,7 @@ internal class BulkPublish : ElsaEndpoint<Request, Response>
     private readonly IWorkflowDefinitionStore _store;
     private readonly IWorkflowDefinitionPublisher _workflowDefinitionPublisher;
 
-    public BulkPublish(IWorkflowDefinitionStore store, IWorkflowDefinitionPublisher workflowDefinitionPublisher, SerializerOptionsProvider serializerOptionsProvider)
+    public BulkPublish(IWorkflowDefinitionStore store, IWorkflowDefinitionPublisher workflowDefinitionPublisher)
     {
         _store = store;
         _workflowDefinitionPublisher = workflowDefinitionPublisher;
@@ -20,7 +20,7 @@ internal class BulkPublish : ElsaEndpoint<Request, Response>
 
     public override void Configure()
     {
-        Post("/bulk-actions/publish/workflow-definitions/by-definition-id");
+        Post("/bulk-actions/publish/workflow-definitions/by-definition-ids");
         ConfigurePermissions("publish:workflow-definitions");
     }
 

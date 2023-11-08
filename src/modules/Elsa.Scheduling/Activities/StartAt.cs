@@ -1,9 +1,11 @@
 ﻿using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
 using Elsa.Common.Contracts;
 using Elsa.Expressions.Models;
 using Elsa.Extensions;
+using Elsa.Scheduling.Bookmarks;
+using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Attributes;
+using Elsa.Workflows.Core.Memory;
 using Elsa.Workflows.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -18,7 +20,6 @@ public class StartAt : Trigger
     private const string InputKey = "ExecuteAt";
 
     /// <inheritdoc />
-    [JsonConstructor]
     public StartAt([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }
@@ -75,7 +76,7 @@ public class StartAt : Trigger
     protected override void Execute(ActivityExecutionContext context)
     {
         // If external input was received, it means this activity got triggered and does not need to create a bookmark.
-        if (context.TryGetInput<DateTimeOffset>(InputKey, out _)) 
+        if (context.TryGetWorkflowInput<DateTimeOffset>(InputKey, out _)) 
             return;
         
         // No external input received, so create a bookmark.
@@ -99,7 +100,5 @@ public class StartAt : Trigger
     /// <summary>
     /// Creates a new <see cref="StartAt"/> activity set to trigger at the specified timestamp.
     /// </summary>
-    public static StartAt From(DateTimeOffset value) => new(value);
+    public static StartAt From(DateTimeOffset value, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) => new(value, source, line);
 }
-
-internal record StartAtPayload(DateTimeOffset ExecuteAt);

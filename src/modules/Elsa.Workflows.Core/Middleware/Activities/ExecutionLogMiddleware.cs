@@ -1,10 +1,7 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Elsa.Extensions;
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Models;
 using Elsa.Workflows.Core.Pipelines.ActivityExecution;
-using Elsa.Workflows.Core.Services;
 
 namespace Elsa.Workflows.Core.Middleware.Activities;
 
@@ -20,7 +17,7 @@ public static class ExecutionLogMiddlewareExtensions
 }
 
 /// <summary>
-/// An activity execution middleware component that extracts execution details as <see cref="WorkflowExecutionLogEntry"/>.
+/// An activity execution middleware component that extracts execution details as <see cref="WorkflowExecutionLogEntry"/> objects.
 /// </summary>
 public class ExecutionLogMiddleware : IActivityExecutionMiddleware
 {
@@ -37,37 +34,37 @@ public class ExecutionLogMiddleware : IActivityExecutionMiddleware
     /// <inheritdoc />
     public async ValueTask InvokeAsync(ActivityExecutionContext context)
     {
-        context.AddExecutionLogEntry("Started", includeActivityState: true);
+        context.AddExecutionLogEntry(IsActivityBookmarked(context) ? "Resumed" : "Started", includeActivityState: true);
 
         try
         {
             await _next(context);
-            
-            var payload = new JsonObject();
 
-            foreach (var entry in context.JournalData)
+            if (context.Status == ActivityStatus.Running)
             {
-                payload[entry.Key] = entry.Value != null ? JsonSerializer.Deserialize<JsonNode>(JsonSerializer.Serialize(entry.Value)) : JsonNode.Parse("null");
+                if (IsActivityBookmarked(context))
+                    context.AddExecutionLogEntry("Suspended", payload: context.JournalData, includeActivityState: true);
             }
-
-            context.AddExecutionLogEntry("Completed", payload: payload, includeActivityState: true);
         }
         catch (Exception exception)
         {
             context.AddExecutionLogEntry("Faulted",
                 includeActivityState: true,
+                message: exception.Message,
                 payload: new
                 {
-                    Exception = new
-                    {
-                        exception.Message,
-                        exception.Source,
-                        exception.Data,
-                        Type = exception.GetType()
-                    }
+                    Exception = exception.GetType().FullName,
+                    exception.Message,
+                    exception.Source,
+                    exception.Data,
+                    exception.StackTrace,
+                    InnerException = exception.InnerException?.GetType().FullName,
                 });
 
             throw;
         }
     }
+
+    private static bool IsActivityBookmarked(ActivityExecutionContext context) =>
+        context.WorkflowExecutionContext.Bookmarks.Any(b => b.ActivityNodeId.Equals(context.ActivityNode.NodeId));
 }

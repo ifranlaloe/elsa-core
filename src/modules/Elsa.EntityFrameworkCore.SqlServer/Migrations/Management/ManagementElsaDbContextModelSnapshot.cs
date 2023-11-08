@@ -18,7 +18,7 @@ namespace Elsa.EntityFrameworkCore.SqlServer.Migrations.Management
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("Elsa")
-                .HasAnnotation("ProductVersion", "7.0.2")
+                .HasAnnotation("ProductVersion", "7.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -50,6 +50,9 @@ namespace Elsa.EntityFrameworkCore.SqlServer.Migrations.Management
                     b.Property<bool>("IsPublished")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("IsReadonly")
+                        .HasColumnType("bit");
+
                     b.Property<string>("MaterializerContext")
                         .HasColumnType("nvarchar(max)");
 
@@ -60,7 +63,13 @@ namespace Elsa.EntityFrameworkCore.SqlServer.Migrations.Management
                     b.Property<string>("Name")
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<string>("ProviderName")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("StringData")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ToolVersion")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<bool?>("UsableAsActivity")
@@ -80,6 +89,9 @@ namespace Elsa.EntityFrameworkCore.SqlServer.Migrations.Management
                     b.HasIndex("Name")
                         .HasDatabaseName("IX_WorkflowDefinition_Name");
 
+                    b.HasIndex("UsableAsActivity")
+                        .HasDatabaseName("IX_WorkflowDefinition_UsableAsActivity");
+
                     b.HasIndex("Version")
                         .HasDatabaseName("IX_WorkflowDefinition_Version");
 
@@ -94,9 +106,6 @@ namespace Elsa.EntityFrameworkCore.SqlServer.Migrations.Management
                 {
                     b.Property<string>("Id")
                         .HasColumnType("nvarchar(450)");
-
-                    b.Property<DateTimeOffset?>("CancelledAt")
-                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CorrelationId")
                         .HasColumnType("nvarchar(450)");
@@ -115,14 +124,11 @@ namespace Elsa.EntityFrameworkCore.SqlServer.Migrations.Management
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<DateTimeOffset?>("FaultedAt")
-                        .HasColumnType("datetimeoffset");
-
                     b.Property<DateTimeOffset?>("FinishedAt")
                         .HasColumnType("datetimeoffset");
 
-                    b.Property<DateTimeOffset?>("LastExecutedAt")
-                        .HasColumnType("datetimeoffset");
+                    b.Property<int>("IncidentCount")
+                        .HasColumnType("int");
 
                     b.Property<string>("Name")
                         .HasColumnType("nvarchar(450)");
@@ -134,6 +140,9 @@ namespace Elsa.EntityFrameworkCore.SqlServer.Migrations.Management
                     b.Property<string>("SubStatus")
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<int>("Version")
                         .HasColumnType("int");
@@ -149,14 +158,8 @@ namespace Elsa.EntityFrameworkCore.SqlServer.Migrations.Management
                     b.HasIndex("DefinitionId")
                         .HasDatabaseName("IX_WorkflowInstance_DefinitionId");
 
-                    b.HasIndex("FaultedAt")
-                        .HasDatabaseName("IX_WorkflowInstance_FaultedAt");
-
                     b.HasIndex("FinishedAt")
                         .HasDatabaseName("IX_WorkflowInstance_FinishedAt");
-
-                    b.HasIndex("LastExecutedAt")
-                        .HasDatabaseName("IX_WorkflowInstance_LastExecutedAt");
 
                     b.HasIndex("Name")
                         .HasDatabaseName("IX_WorkflowInstance_Name");
@@ -166,6 +169,9 @@ namespace Elsa.EntityFrameworkCore.SqlServer.Migrations.Management
 
                     b.HasIndex("SubStatus")
                         .HasDatabaseName("IX_WorkflowInstance_SubStatus");
+
+                    b.HasIndex("UpdatedAt")
+                        .HasDatabaseName("IX_WorkflowInstance_UpdatedAt");
 
                     b.HasIndex("Status", "DefinitionId")
                         .HasDatabaseName("IX_WorkflowInstance_Status_DefinitionId");

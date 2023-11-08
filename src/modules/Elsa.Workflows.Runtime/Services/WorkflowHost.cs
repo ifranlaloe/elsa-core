@@ -1,8 +1,13 @@
+using Elsa.Workflows.Core;
+using Elsa.Workflows.Core.Activities;
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Helpers;
 using Elsa.Workflows.Core.Models;
+using Elsa.Workflows.Core.Options;
 using Elsa.Workflows.Core.State;
 using Elsa.Workflows.Runtime.Contracts;
+using Elsa.Workflows.Runtime.Options;
+using Elsa.Workflows.Runtime.Results;
 using Microsoft.Extensions.Logging;
 
 namespace Elsa.Workflows.Runtime.Services;
@@ -38,14 +43,14 @@ public class WorkflowHost : IWorkflowHost
 
     /// <inheritdoc />
     public Workflow Workflow { get; set; }
-    
+
     /// <inheritdoc />
     public WorkflowState WorkflowState { get; set; }
 
     /// <inheritdoc />
     public async Task<bool> CanStartWorkflowAsync(StartWorkflowHostOptions? options = default, CancellationToken cancellationToken = default)
     {
-        var strategyType = Workflow.Options?.ActivationStrategyType;
+        var strategyType = Workflow.Options.ActivationStrategyType;
 
         if (strategyType == null)
             return true;
@@ -67,7 +72,14 @@ public class WorkflowHost : IWorkflowHost
         var instanceId = options?.InstanceId ?? _identityGenerator.GenerateId();
         var originalBookmarks = WorkflowState.Bookmarks.ToList();
         var input = options?.Input;
-        var runOptions = new RunWorkflowOptions(instanceId, correlationId, Input: input, TriggerActivityId: options?.TriggerActivityId);
+
+        var runOptions = new RunWorkflowOptions(
+            instanceId,
+            correlationId,
+            input: input,
+            triggerActivityId: options?.TriggerActivityId,
+            cancellationTokens: options?.CancellationTokens ?? cancellationToken);
+
         var workflowResult = await _workflowRunner.RunAsync(Workflow, runOptions, cancellationToken);
 
         WorkflowState = workflowResult.WorkflowState;
@@ -84,7 +96,7 @@ public class WorkflowHost : IWorkflowHost
     public async Task<ResumeWorkflowHostResult> ResumeWorkflowAsync(ResumeWorkflowHostOptions? options = default, CancellationToken cancellationToken = default)
     {
         var originalBookmarks = WorkflowState.Bookmarks.ToList();
-        
+
         if (WorkflowState.Status != WorkflowStatus.Running)
         {
             _logger.LogWarning("Attempt to resume workflow {WorkflowInstanceId} that is not in the Running state. The actual state is {ActualWorkflowStatus}", WorkflowState.Id, WorkflowState.Status);
@@ -93,11 +105,24 @@ public class WorkflowHost : IWorkflowHost
 
         var instanceId = WorkflowState.Id;
         var input = options?.Input;
-        var runOptions = new RunWorkflowOptions(instanceId, options?.CorrelationId, options?.BookmarkId, options?.ActivityId, input);
+
+        var runOptions = new RunWorkflowOptions(
+            instanceId,
+            options?.CorrelationId,
+            options?.BookmarkId,
+            options?.ActivityId,
+            options?.ActivityNodeId,
+            options?.ActivityInstanceId,
+            options?.ActivityHash,
+            input,
+            default,
+            options?.CancellationTokens ?? cancellationToken
+        );
+
         var workflowResult = await _workflowRunner.RunAsync(Workflow, WorkflowState, runOptions, cancellationToken);
 
         WorkflowState = workflowResult.WorkflowState;
-        
+
         var updatedBookmarks = WorkflowState.Bookmarks;
         return new ResumeWorkflowHostResult(Diff.For(originalBookmarks, updatedBookmarks));
     }

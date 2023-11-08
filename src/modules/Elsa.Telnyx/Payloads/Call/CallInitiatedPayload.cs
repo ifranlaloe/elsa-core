@@ -1,8 +1,9 @@
 ﻿using Elsa.Telnyx.Attributes;
+using Elsa.Telnyx.Payloads.Abstractions;
 
 namespace Elsa.Telnyx.Payloads.Call;
 
-[Webhook(WebhookEventTypes.CallInitiated, WebhookActivityTypeNames.CallInitiated, "Call Initiated", "Triggered when an incoming call is received.")]
+[Webhook(WebhookEventTypes.CallInitiated)]
 public sealed record CallInitiatedPayload : CallPayload
 { 
     public string Direction { get; init; } = default!;

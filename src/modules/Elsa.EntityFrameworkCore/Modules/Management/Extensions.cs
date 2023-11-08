@@ -3,7 +3,7 @@
 namespace Elsa.EntityFrameworkCore.Modules.Management;
 
 /// <summary>
-/// Provides extensions to <see cref="WorkflowManagementFeature"/>.
+/// Provides extensions to various management related features.
 /// </summary>
 public static class WorkflowManagementFeatureExtensions
 {
@@ -28,7 +28,7 @@ public static class WorkflowManagementFeatureExtensions
     /// <summary>
     /// Sets up the EF Core persistence provider. 
     /// </summary>
-    public static WorkflowManagementFeature UseEntityFrameworkCore(this WorkflowManagementFeature feature, Action<EFCoreWorkflowManagementPersistenceFeature>? configure = default)
+    public static WorkflowManagementFeature UseEntityFrameworkCore(this WorkflowManagementFeature feature, Action<WorkflowManagementPersistenceFeature>? configure = default)
     {
         feature.Module.Configure(configure);
         return feature;

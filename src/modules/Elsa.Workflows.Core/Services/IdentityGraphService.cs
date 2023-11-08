@@ -1,4 +1,5 @@
 using Elsa.Extensions;
+using Elsa.Workflows.Core.Activities;
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Models;
 
@@ -7,23 +8,28 @@ namespace Elsa.Workflows.Core.Services;
 /// <inheritdoc />
 public class IdentityGraphService : IIdentityGraphService
 {
-    private readonly IActivityWalker _activityWalker;
+    private readonly IActivityVisitor _activityVisitor;
+    private readonly IActivityRegistry _activityRegistry;
 
     /// <summary>
     /// Constructor.
     /// </summary>
-    public IdentityGraphService(IActivityWalker activityWalker)
+    public IdentityGraphService(IActivityVisitor activityVisitor, IActivityRegistry activityRegistry)
     {
-        _activityWalker = activityWalker;
+        _activityVisitor = activityVisitor;
+        _activityRegistry = activityRegistry;
     }
 
     /// <inheritdoc />
-    public async Task AssignIdentitiesAsync(Workflow workflow, CancellationToken cancellationToken = default) => await AssignIdentitiesAsync((IActivity)workflow, cancellationToken);
+    public async Task AssignIdentitiesAsync(Workflow workflow, CancellationToken cancellationToken = default)
+    {
+        await AssignIdentitiesAsync((IActivity)workflow, cancellationToken);
+    }
 
     /// <inheritdoc />
     public async Task AssignIdentitiesAsync(IActivity root, CancellationToken cancellationToken = default)
     {
-        var graph = await _activityWalker.WalkAsync(root, cancellationToken);
+        var graph = await _activityVisitor.VisitAsync(root, cancellationToken);
         AssignIdentities(graph);
     }
 
@@ -38,9 +44,10 @@ public class IdentityGraphService : IIdentityGraphService
         foreach (var node in flattenedList)
         {
             node.Activity.Id = CreateId(node, identityCounters, flattenedList);
+            node.Activity.NodeId = node.NodeId;
             AssignInputOutputs(node.Activity);
-            
-            if(node.Activity is IVariableContainer variableContainer)
+
+            if (node.Activity is IVariableContainer variableContainer)
                 AssignVariables(variableContainer);
         }
     }
@@ -48,32 +55,33 @@ public class IdentityGraphService : IIdentityGraphService
     /// <inheritdoc />
     public void AssignInputOutputs(IActivity activity)
     {
-        var inputs = activity.GetInputs();
+        var activityDescriptor = _activityRegistry.Find(activity.Type, activity.Version) ?? throw new Exception("Activity descriptor not found");
+        var inputs = activityDescriptor.GetWrappedInputProperties(activity).Values.Cast<Input>().ToList();
         var seed = 0;
 
         foreach (var input in inputs)
         {
-            var blockReference = input.MemoryBlockReference();
-            
-            if(string.IsNullOrEmpty(blockReference.Id))
-                blockReference.Id = $"{activity.Id}:input-{++seed}";
+            var blockReference = input?.MemoryBlockReference();
+
+            if (blockReference != null!)
+                if (string.IsNullOrEmpty(blockReference.Id))
+                    blockReference.Id = $"{activity.Id}:input-{seed}";
+
+            seed++;
         }
 
         seed = 0;
         var outputs = activity.GetOutputs();
-        
-        var assignedOutputs = outputs.Where(x =>
-        {
-            var memoryBlockReference = x.Value.MemoryBlockReference();
-            return memoryBlockReference != null! && memoryBlockReference.Id == null!;
-        }).ToList();
 
-        foreach (var output in assignedOutputs)
+        foreach (var output in outputs)
         {
             var blockReference = output.Value.MemoryBlockReference();
-            
-            if(string.IsNullOrEmpty(blockReference.Id))
-                blockReference.Id = $"{activity.Id}:output-{++seed}";
+
+            if (blockReference != null!)
+                if (string.IsNullOrEmpty(blockReference.Id))
+                    blockReference.Id = $"{activity.Id}:output-{seed}";
+
+            seed++;
         }
     }
 
@@ -84,7 +92,7 @@ public class IdentityGraphService : IIdentityGraphService
         var seed = 0;
 
         foreach (var variable in variables)
-            variable.Id = variable.Name != null! ? variable.Name : $"{activity.Id}:variable-{++seed}";
+            variable.Id = variable.Id != null! ? variable.Id : $"{activity.Id}:variable-{++seed}";
     }
 
     private string CreateId(ActivityNode activityNode, IDictionary<string, int> identityCounters, ICollection<ActivityNode> allNodes)

@@ -1,10 +1,9 @@
 using Elsa.Extensions;
 using Elsa.WorkflowContexts.Contracts;
-using Elsa.WorkflowContexts.Models;
+using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Models;
 using Elsa.Workflows.Core.Pipelines.ActivityExecution;
-using Elsa.Workflows.Core.Services;
+using Elsa.Workflows.Runtime.Middleware.Activities;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Elsa.WorkflowContexts.Middleware;
@@ -29,46 +28,49 @@ public class WorkflowContextActivityExecutionMiddleware : IActivityExecutionMidd
     /// <inheritdoc />
     public async ValueTask InvokeAsync(ActivityExecutionContext context)
     {
-        // Check if the workflow contains any workflow contexts.
-        if (!context.WorkflowExecutionContext.Workflow.CustomProperties!.TryGetValue<ICollection<WorkflowContext>>("Elsa:WorkflowContexts", out var workflowContexts))
+        // Check if the workflow contains any workflow context providers.
+        if (!context.WorkflowExecutionContext.Workflow.CustomProperties.TryGetValue<ICollection<Type>>(Constants.WorkflowContextProviderTypesKey, out var providerTypes))
         {
             await _next(context);
             return;
         }
 
-        // For each workflow context, invoke its provider.
-        using (var scope = _serviceScopeFactory.CreateScope())
+        // Check if this is a background execution.
+        var isBackgroundExecution = context.TransientProperties.GetValueOrDefault<object, bool>(BackgroundActivityInvokerMiddleware.IsBackgroundExecution);
+
+        // Is the activity configured to load the context?
+        foreach (var providerType in providerTypes)
         {
-            foreach (var workflowContext in workflowContexts!)
-            {
-                var load = context.Activity.GetActivityWorkflowContextSettings(workflowContext).Load;
-                if (!load) continue;
+            // Is the activity configured to load the context or is this a background execution?
+            var load = isBackgroundExecution || context.Activity.GetActivityWorkflowContextSettings(providerType).Load;
+            if (!load) continue;
 
-                var provider = (IWorkflowContextProvider)ActivatorUtilities.GetServiceOrCreateInstance(scope.ServiceProvider, workflowContext.ProviderType);
-                var value = await provider.LoadAsync(context.WorkflowExecutionContext);
+            // Load the context.
+            using var scope = _serviceScopeFactory.CreateScope();
+            var provider = (IWorkflowContextProvider)ActivatorUtilities.GetServiceOrCreateInstance(scope.ServiceProvider, providerType);
+            var value = await provider.LoadAsync(context.WorkflowExecutionContext);
 
-                // Store the loaded value into the workflow execution context.
-                context.WorkflowExecutionContext.SetWorkflowContext(workflowContext, value!);
-            }
+            // Store the loaded value into the workflow execution context.
+            context.WorkflowExecutionContext.SetWorkflowContext(providerType, value!);
         }
 
         // Invoke the next middleware.
         await _next(context);
 
-        // For each workflow context, invoke its provider to update the context.
-        using (var scope = _serviceScopeFactory.CreateScope())
+        // Invoke each workflow context provider to persists the context.
+        foreach (var providerType in providerTypes)
         {
-            foreach (var workflowContext in workflowContexts!)
-            {
-                var save = context.Activity.GetActivityWorkflowContextSettings(workflowContext).Load;
-                if (!save) continue;
+            // Is the activity configured to save the context or is this a background execution?
+            var save = isBackgroundExecution || context.Activity.GetActivityWorkflowContextSettings(providerType).Load;
+            if (!save) continue;
 
-                // Get the loaded value from the workflow execution context.
-                var value = context.WorkflowExecutionContext.GetWorkflowContext(workflowContext);
+            // Get the loaded value from the workflow execution context.
+            using var scope = _serviceScopeFactory.CreateScope();
+            var value = context.WorkflowExecutionContext.GetWorkflowContext(providerType);
 
-                var provider = (IWorkflowContextProvider)ActivatorUtilities.GetServiceOrCreateInstance(scope.ServiceProvider, workflowContext.ProviderType);
-                await provider.SaveAsync(context.WorkflowExecutionContext, value);
-            }
+            // Save the context.
+            var provider = (IWorkflowContextProvider)ActivatorUtilities.GetServiceOrCreateInstance(scope.ServiceProvider, providerType);
+            await provider.SaveAsync(context.WorkflowExecutionContext, value);
         }
     }
 }

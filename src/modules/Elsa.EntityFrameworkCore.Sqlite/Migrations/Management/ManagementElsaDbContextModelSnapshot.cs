@@ -15,7 +15,7 @@ namespace Elsa.EntityFrameworkCore.Sqlite.Migrations.Management
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "7.0.2");
+            modelBuilder.HasAnnotation("ProductVersion", "7.0.11");
 
             modelBuilder.Entity("Elsa.Workflows.Management.Entities.WorkflowDefinition", b =>
                 {
@@ -45,6 +45,9 @@ namespace Elsa.EntityFrameworkCore.Sqlite.Migrations.Management
                     b.Property<bool>("IsPublished")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("IsReadonly")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("MaterializerContext")
                         .HasColumnType("TEXT");
 
@@ -55,7 +58,13 @@ namespace Elsa.EntityFrameworkCore.Sqlite.Migrations.Management
                     b.Property<string>("Name")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ProviderName")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("StringData")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ToolVersion")
                         .HasColumnType("TEXT");
 
                     b.Property<bool?>("UsableAsActivity")
@@ -75,6 +84,9 @@ namespace Elsa.EntityFrameworkCore.Sqlite.Migrations.Management
                     b.HasIndex("Name")
                         .HasDatabaseName("IX_WorkflowDefinition_Name");
 
+                    b.HasIndex("UsableAsActivity")
+                        .HasDatabaseName("IX_WorkflowDefinition_UsableAsActivity");
+
                     b.HasIndex("Version")
                         .HasDatabaseName("IX_WorkflowDefinition_Version");
 
@@ -88,9 +100,6 @@ namespace Elsa.EntityFrameworkCore.Sqlite.Migrations.Management
             modelBuilder.Entity("Elsa.Workflows.Management.Entities.WorkflowInstance", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CancelledAt")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("CorrelationId")
@@ -111,14 +120,11 @@ namespace Elsa.EntityFrameworkCore.Sqlite.Migrations.Management
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("FaultedAt")
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("FinishedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("LastExecutedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<int>("IncidentCount")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Name")
                         .HasColumnType("TEXT");
@@ -128,6 +134,10 @@ namespace Elsa.EntityFrameworkCore.Sqlite.Migrations.Management
                         .HasColumnType("TEXT");
 
                     b.Property<string>("SubStatus")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -145,14 +155,8 @@ namespace Elsa.EntityFrameworkCore.Sqlite.Migrations.Management
                     b.HasIndex("DefinitionId")
                         .HasDatabaseName("IX_WorkflowInstance_DefinitionId");
 
-                    b.HasIndex("FaultedAt")
-                        .HasDatabaseName("IX_WorkflowInstance_FaultedAt");
-
                     b.HasIndex("FinishedAt")
                         .HasDatabaseName("IX_WorkflowInstance_FinishedAt");
-
-                    b.HasIndex("LastExecutedAt")
-                        .HasDatabaseName("IX_WorkflowInstance_LastExecutedAt");
 
                     b.HasIndex("Name")
                         .HasDatabaseName("IX_WorkflowInstance_Name");
@@ -162,6 +166,9 @@ namespace Elsa.EntityFrameworkCore.Sqlite.Migrations.Management
 
                     b.HasIndex("SubStatus")
                         .HasDatabaseName("IX_WorkflowInstance_SubStatus");
+
+                    b.HasIndex("UpdatedAt")
+                        .HasDatabaseName("IX_WorkflowInstance_UpdatedAt");
 
                     b.HasIndex("Status", "DefinitionId")
                         .HasDatabaseName("IX_WorkflowInstance_Status_DefinitionId");

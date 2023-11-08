@@ -1,3 +1,5 @@
+using Elsa.Workflows.Core.Contracts;
+
 namespace Elsa.Workflows.Core.Attributes;
 
 /// <summary>
@@ -43,6 +45,11 @@ public class InputAttribute : Attribute
     public Type? OptionsProvider { get; set; }
 
     /// <summary>
+    /// The method name on the activity to invoke to get options. If specified, this overrules any value specified via <see cref="Options"/> and <see cref="OptionsProvider"/>.
+    /// </summary>
+    public string? OptionsMethod { get; set; }
+
+    /// <summary>
     /// A value to order this property by. Properties are displayed in ascending order (lower appears before higher).
     /// </summary>
     public float Order { get; set; }
@@ -53,7 +60,7 @@ public class InputAttribute : Attribute
     public object? DefaultValue { get; set; }
 
     /// <summary>
-    /// The type that provides a default value. When specified, the <see cref="DefaultValue"/> will be ignored.
+    /// A type that implements <see cref="IActivityPropertyDefaultValueProvider"/> and provides a default value. When specified, the <see cref="DefaultValue"/> will be ignored.
     /// </summary>
     public Type? DefaultValueProvider { get; set; }
 
@@ -82,4 +89,9 @@ public class InputAttribute : Attribute
     /// When set to false, it is up to the activity itself to evaluate its input before using it. 
     /// </summary>
     public bool AutoEvaluate { get; set; } = true;
+    
+    /// <summary>
+    /// A value indicating whether this input can be serialized as part of the workflow instance,
+    /// </summary>
+    public bool IsSerializable { get; set; } = true;
 }

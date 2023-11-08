@@ -1,9 +1,9 @@
 using System.ComponentModel;
-using System.Text.Json.Serialization;
+using System.Runtime.CompilerServices;
 using Elsa.Expressions.Models;
 using Elsa.Extensions;
 using Elsa.MassTransit.Implementations;
-using Elsa.Workflows.Core.Models;
+using Elsa.Workflows.Core;
 
 namespace Elsa.MassTransit.Activities;
 
@@ -16,8 +16,7 @@ public class MessageReceived : Trigger<object>
     internal const string InputKey = "Message";
 
     /// <inheritdoc />
-    [JsonConstructor]
-    public MessageReceived()
+    public MessageReceived([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }
 
@@ -33,7 +32,7 @@ public class MessageReceived : Trigger<object>
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
     {
         // If we did not receive external input, it means we are just now encountering this activity and we need to block execution by creating a bookmark.
-        if (!context.TryGetInput<object>(InputKey, out var message))
+        if (!context.TryGetWorkflowInput<object>(InputKey, out var message))
         {
             // Create bookmarks for when we receive the expected HTTP request.
             context.CreateBookmark(GetBookmarkPayload(context.ExpressionExecutionContext));

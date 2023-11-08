@@ -1,11 +1,10 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.Json;
+using Elsa.Mediator;
 using Elsa.Mediator.Contracts;
 using Elsa.Telnyx.Contracts;
 using Elsa.Telnyx.Events;
-using Elsa.Telnyx.Extensions;
 using Elsa.Telnyx.Models;
-using Elsa.Telnyx.Payloads.Abstract;
 using Elsa.Telnyx.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -15,7 +14,7 @@ namespace Elsa.Telnyx.Services;
 internal class WebhookHandler : IWebhookHandler
 {
     private static readonly JsonSerializerOptions SerializerSettings;
-    private readonly IBackgroundEventPublisher _mediator;
+    private readonly INotificationSender _notificationSender;
     private readonly ILogger<WebhookHandler> _logger;
 
     static WebhookHandler()
@@ -23,9 +22,9 @@ internal class WebhookHandler : IWebhookHandler
         SerializerSettings = CreateSerializerSettings();
     }
 
-    public WebhookHandler(IBackgroundEventPublisher mediator, ILogger<WebhookHandler> logger)
+    public WebhookHandler(INotificationSender notificationSender, ILogger<WebhookHandler> logger)
     {
-        _mediator = mediator;
+        _notificationSender = notificationSender;
         _logger = logger;
     }
 
@@ -34,11 +33,9 @@ internal class WebhookHandler : IWebhookHandler
         var cancellationToken = httpContext.RequestAborted;
         var json = await ReadRequestBodyAsync(httpContext);
         var webhook = JsonSerializer.Deserialize<TelnyxWebhook>(json, SerializerSettings)!;
-        var correlationId = ((Payload)webhook.Data.Payload).GetCorrelationId();
-
-        using var loggingScope = _logger.BeginScope(new Dictionary<string, object> { ["CorrelationId"] = correlationId });
+        
         _logger.LogDebug("Telnyx webhook payload received: {@Webhook}", webhook);
-        await _mediator.PublishAsync(new TelnyxWebhookReceived(webhook), cancellationToken);
+        await _notificationSender.SendAsync(new TelnyxWebhookReceived(webhook), NotificationStrategy.Background, cancellationToken);
     }
 
     private static async Task<string> ReadRequestBodyAsync(HttpContext httpContext)

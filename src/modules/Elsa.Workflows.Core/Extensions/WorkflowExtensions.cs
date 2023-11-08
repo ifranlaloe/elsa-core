@@ -1,48 +1,26 @@
-using Elsa.Expressions.Helpers;
-using Elsa.Expressions.Models;
-using Elsa.Workflows.Core.Models;
+using Elsa.Workflows.Core.Activities;
 
 // ReSharper disable once CheckNamespace
 namespace Elsa.Extensions;
 
+/// <summary>
+/// Provides extension methods for <see cref="Workflow"/>.
+/// </summary>  
 public static class WorkflowExtensions
 {
-    public static Workflow WithVersion(this Workflow workflow, int version)
+    /// <summary>
+    /// Returns a boolean indicating whether the workflow was created with modern tooling.
+    /// </summary>
+    public static bool CreatedWithModernTooling(this Workflow workflow) => workflow.WorkflowMetadata.ToolVersion?.Major >= 3;
+    
+    /// <summary>
+    /// Executes the specified action depending on whether the workflow was created with modern tooling or not.
+    /// </summary>
+    public static void WhenCreatedWithModernTooling(this Workflow workflow, Action modernToolingAction, Action legacyToolingAction)
     {
-        workflow.Identity = workflow.Identity with { Version = version };
-        return workflow;
+        if (workflow.CreatedWithModernTooling())
+            modernToolingAction();
+        else
+            legacyToolingAction();
     }
-
-    public static Workflow IncrementVersion(this Workflow workflow) => WithVersion(workflow, workflow.Identity.Version + 1);
-
-    public static Workflow WithPublished(this Workflow workflow, bool value = true)
-    {
-        workflow.Publication = workflow.Publication with { IsPublished = value };
-        return workflow;
-    }
-
-    public static Workflow WithLatest(this Workflow workflow, bool value = true)
-    {
-        workflow.Publication = workflow.Publication with { IsLatest = value };
-        return workflow;
-    }
-
-    public static Workflow WithId(this Workflow workflow, string value)
-    {
-        workflow.Identity = workflow.Identity with { Id = value };
-        return workflow;
-    }
-
-    public static Workflow WithDefinitionId(this Workflow workflow, string value)
-    {
-        workflow.Identity = workflow.Identity with { DefinitionId = value };
-        return workflow;
-    }
-}
-
-public static class MemoryBlockReferenceExtensions
-{
-    public static object? Get(this MemoryBlockReference block, ActivityExecutionContext context) => block.Get(context.ExpressionExecutionContext);
-    public static T? Get<T>(this MemoryBlockReference block, ActivityExecutionContext context) => block.Get(context.ExpressionExecutionContext).ConvertTo<T>();
-    public static void Set(this MemoryBlockReference block, ActivityExecutionContext context, object? value) => block.Set(context.ExpressionExecutionContext, value);
 }

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Elsa.Email.Contracts;
@@ -9,8 +10,7 @@ using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
-using Elsa.Workflows.Management.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MimeKit;
 
@@ -19,44 +19,67 @@ namespace Elsa.Email.Activities;
 /// <summary>
 /// Send an email message.
 /// </summary>
-[Activity("Email", "Send an email message.", Kind = ActivityKind.Task)]
+[Activity("Elsa", "Email", "Send an email message.", Kind = ActivityKind.Task)]
 public class SendEmail : Activity
 {
+    /// <inheritdoc />
+    public SendEmail([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
+    {
+    }
+
     /// <summary>
     /// The sender's email address.
     /// </summary>
     [Input(Description = "The sender's email address.")]
-    public Input<string?> From { get; set; }
+    public Input<string?> From { get; set; } = default!;
 
+    /// <summary>
+    /// The recipients email addresses.
+    /// </summary>
     [Input(Description = "The recipients email addresses.", UIHint = InputUIHints.MultiText)]
     public Input<ICollection<string>> To { get; set; } = default!;
 
+    /// <summary>
+    /// The CC recipient email addresses.
+    /// </summary>
     [Input(
-        Description = "The cc recipient email addresses.",
+        Description = "The CC recipient email addresses.",
         UIHint = InputUIHints.MultiText,
         Category = "More")]
     public Input<ICollection<string>> Cc { get; set; } = default!;
 
+    /// <summary>
+    /// The BCC recipients email addresses.
+    /// </summary>
     [Input(
-        Description = "The Bcc recipients email addresses.",
+        Description = "The BCC recipients email addresses.",
         UIHint = InputUIHints.MultiText,
         Category = "More")]
     public Input<ICollection<string>> Bcc { get; set; } = default!;
 
+    /// <summary>
+    /// The subject of the email message.
+    /// </summary>
     [Input(Description = "The subject of the email message.")]
     public Input<string?> Subject { get; set; } = default!;
 
+    /// <summary>
+    /// The attachments to send with the email message.
+    /// </summary>
     [Input(
         Description = "The attachments to send with the email message. Can be (an array of) a fully-qualified file path, URL, stream, byte array or instances of EmailAttachment.",
         UIHint = InputUIHints.MultiLine
     )]
     public Input<object?> Attachments { get; set; } = default!;
 
+    /// <summary>
+    /// The body of the email message.
+    /// </summary>
     [Input(
         Description = "The body of the email message.",
         UIHint = InputUIHints.MultiLine
     )]
-    public Input<string?> Body { get; set; } = default!;
+    public Input<string> Body { get; set; } = default!;
 
     /// <summary>
     /// The activity to execute when an error occurs while trying to send the email.
@@ -64,44 +87,53 @@ public class SendEmail : Activity
     [Port]
     public IActivity? Error { get; set; }
 
+    /// <inheritdoc />
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
     {
         var cancellationToken = context.CancellationToken;
         var message = new MimeMessage();
         var options = context.GetRequiredService<IOptions<SmtpOptions>>().Value;
-        var from = string.IsNullOrWhiteSpace(From.TryGet(context)) ? options.DefaultSender : From.Get(context)!;
+        var from = string.IsNullOrWhiteSpace(From.GetOrDefault(context)) ? options.DefaultSender : From.Get(context)!;
 
         message.Sender = MailboxAddress.Parse(from);
         message.From.Add(MailboxAddress.Parse(from));
-        message.Subject = Subject.TryGet(context);
+        message.Subject = Subject.GetOrDefault(context) ?? "";
 
-        var bodyBuilder = new BodyBuilder { HtmlBody = Body.TryGet(context) };
+        var bodyBuilder = new BodyBuilder { HtmlBody = Body.GetOrDefault(context) };
         await AddAttachmentsAsync(context, bodyBuilder, cancellationToken);
 
         message.Body = bodyBuilder.ToMessageBody();
 
-        SetRecipientsEmailAddresses(message.To, To.Get(context));
-        SetRecipientsEmailAddresses(message.Cc, Cc.TryGet(context));
-        SetRecipientsEmailAddresses(message.Bcc, Bcc.TryGet(context));
+        SetRecipientsEmailAddresses(message.To, GetAddresses(context, To));
+        SetRecipientsEmailAddresses(message.Cc, GetAddresses(context, Cc));
+        SetRecipientsEmailAddresses(message.Bcc, GetAddresses(context, Bcc));
 
         var smtpService = context.GetRequiredService<ISmtpService>();
+        var logger = context.GetRequiredService<ILogger<SendEmail>>();
 
         try
         {
             await smtpService.SendAsync(message, context.CancellationToken);
             await context.CompleteActivityAsync();
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            logger.LogWarning(e, "Error while sending email message");
+            context.AddExecutionLogEntry("Error", e.Message, payload: new { e.StackTrace }, includeActivityState: true);
             await context.ScheduleActivityAsync(Error, OnErrorCompletedAsync);
         }
     }
 
-    private async ValueTask OnErrorCompletedAsync(ActivityExecutionContext context, ActivityExecutionContext childContext) => await context.CompleteActivityAsync();
+    private async ValueTask OnErrorCompletedAsync(ActivityCompletedContext context) => await context.TargetContext.CompleteActivityAsync();
+
+    private static ICollection<string> GetAddresses(ActivityExecutionContext context, Input<ICollection<string>> input)
+    {
+        return input.GetOrDefault(context) ?? new List<string>(0);
+    }
 
     private async Task AddAttachmentsAsync(ActivityExecutionContext context, BodyBuilder bodyBuilder, CancellationToken cancellationToken)
     {
-        var attachments = Attachments.TryGet(context);
+        var attachments = Attachments.GetOrDefault(context);
 
         if (attachments == null || attachments is string s && string.IsNullOrWhiteSpace(s))
             return;

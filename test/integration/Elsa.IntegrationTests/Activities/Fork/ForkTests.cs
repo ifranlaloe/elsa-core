@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 using Elsa.Extensions;
 using Elsa.Testing.Shared;
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Services;
+using Elsa.Workflows.Core.Options;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Xunit.Abstractions;
@@ -29,7 +29,7 @@ public class ForkTests
         var workflow = await _workflowBuilderFactory.CreateBuilder().BuildWorkflowAsync<BasicForkWorkflow>();
         await _workflowRunner.RunAsync(workflow);
         var lines = _capturingTextWriter.Lines.ToList();
-        Assert.Equal(new[]{ "Branch 3", "Branch 2", "Branch 1" }, lines);
+        Assert.Equal(new[]{ "Branch 1", "Branch 2", "Branch 3" }, lines);
     }
     
     [Fact(DisplayName = "Wait AnyAsync causes workflow to continue")]
@@ -41,11 +41,11 @@ public class ForkTests
         var result = await _workflowRunner.RunAsync(workflow);
         
         // Collect one of the bookmarks to resume the workflow.
-        var bookmark = result.WorkflowState.Bookmarks.FirstOrDefault(x => x.ActivityNodeId == "Workflow1:Sequence1:Fork1:Sequence3:Event2");
+        var bookmark = result.WorkflowState.Bookmarks.FirstOrDefault(x => x.ActivityId == "Event2");
         Assert.NotNull(bookmark);
         
         // Resume the workflow.
-        var runOptions = new RunWorkflowOptions(BookmarkId: bookmark!.Id);
+        var runOptions = new RunWorkflowOptions(bookmarkId: bookmark!.Id);
         await _workflowRunner.RunAsync(workflow, result.WorkflowState, runOptions);
         
         // Verify output.

@@ -6,15 +6,17 @@ using Elsa.Extensions;
 using Elsa.Workflows.Core.Activities.Flowchart.Models;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Contracts;
+using Elsa.Workflows.Core.Memory;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
 using Elsa.Workflows.Core.Signals;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Core.Activities;
 
 /// <summary>
 /// Represents a composite activity that has a single <see cref="Root"/> activity. Like a workflow, but without workflow-level properties.
 /// </summary>
+[PublicAPI]
 public abstract class Composite : Activity, IVariableContainer
 {
     /// <inheritdoc />
@@ -28,11 +30,6 @@ public abstract class Composite : Activity, IVariableContainer
     public ICollection<Variable> Variables { get; init; } = new List<Variable>();
 
     /// <summary>
-    /// The result value of the composite, if any.
-    /// </summary>
-    [Output] public Output? Result { get; set; }
-
-    /// <summary>
     /// A variable to allow activities to set a result.
     /// </summary>
     [JsonIgnore]
@@ -43,13 +40,18 @@ public abstract class Composite : Activity, IVariableContainer
     /// </summary>
     [Port]
     [Browsable(false)]
-    [JsonExpandable] // Composite activities' Root is intended to be constructed from code only.
+    [JsonIgnoreCompositeRoot] // Composite activities' Root is intended to be constructed from code only.
     public IActivity Root { get; set; } = new Sequence();
 
     /// <inheritdoc />
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
     {
         ConfigureActivities(context);
+        
+        // Register variables.
+        foreach (var variable in Variables) 
+            variable.Set(context, variable.Value);
+
         await context.ScheduleActivityAsync(Root, OnRootCompletedAsync);
     }
 
@@ -60,10 +62,10 @@ public abstract class Composite : Activity, IVariableContainer
     {
     }
 
-    private async ValueTask OnRootCompletedAsync(ActivityExecutionContext context, ActivityExecutionContext childContext)
+    private async ValueTask OnRootCompletedAsync(ActivityCompletedContext context)
     {
-        await OnCompletedAsync(context, childContext);
-        await context.CompleteActivityAsync();
+        await OnCompletedAsync(context);
+        await context.TargetContext.CompleteActivityAsync();
     }
     
     /// <summary>
@@ -76,13 +78,21 @@ public abstract class Composite : Activity, IVariableContainer
     /// </summary>
     protected async Task CompleteAsync(ActivityExecutionContext context, params string[] outcomes) => await CompleteAsync(context, new Outcomes(outcomes));
 
-    protected virtual ValueTask OnCompletedAsync(ActivityExecutionContext context, ActivityExecutionContext childContext)
+    /// <summary>
+    /// Override this method to execute custom logic when the composite activity completes.
+    /// </summary>
+    /// <param name="context">The context of the composite activity.</param>
+    protected virtual ValueTask OnCompletedAsync(ActivityCompletedContext context)
     {
-        OnCompleted(context, childContext);
+        OnCompleted(context);
         return new();
     }
 
-    protected virtual void OnCompleted(ActivityExecutionContext context, ActivityExecutionContext childContext)
+    /// <summary>
+    /// Override this method to execute custom logic when the composite activity completes.
+    /// </summary>
+    /// <param name="context">The context of the composite activity.</param>
+    protected virtual void OnCompleted(ActivityCompletedContext context)
     {
     }
 
@@ -91,7 +101,8 @@ public abstract class Composite : Activity, IVariableContainer
         // Set the outcome into the context for the parent activity to pick up.
         context.SenderActivityExecutionContext.WorkflowExecutionContext.TransientProperties[nameof(CompleteCompositeSignal)] = signal;
         
-        await OnCompletedAsync(context.ReceiverActivityExecutionContext, context.SenderActivityExecutionContext);
+        var completedContext = new ActivityCompletedContext(context.ReceiverActivityExecutionContext, context.SenderActivityExecutionContext, signal.Value);
+        await OnCompletedAsync(completedContext);
         
         // Complete the sender first so that it notifies its parents to complete.
         await context.SenderActivityExecutionContext.CompleteActivityAsync();
@@ -164,12 +175,53 @@ public abstract class Composite : Activity, IVariableContainer
 }
 
 /// <summary>
-/// Represents a composite activity that has a single <see cref="Root"/> activity and returns a result.
+/// Base class for custom activities with auto-complete behavior that return a result.
 /// </summary>
-public abstract class Composite<T> : Composite
+[PublicAPI]
+public abstract class CompositeWithResult : Composite
+{
+    /// <inheritdoc />
+    protected CompositeWithResult(string? source = default, int? line = default) : base(source, line)
+    {
+    }
+
+    /// <inheritdoc />
+    protected CompositeWithResult(MemoryBlockReference? output, string? source = default, int? line = default) : base(source, line)
+    {
+        if (output != null) Result = new Output(output);
+    }
+
+    /// <inheritdoc />
+    protected CompositeWithResult(Output? output, string? source = default, int? line = default) : base(source, line)
+    {
+        Result = output;
+    }
+
+    /// <summary>
+    /// The result value of the composite.
+    /// </summary>
+    [Output] public Output? Result { get; set; }
+}
+
+/// <summary>
+/// Represents a composite activity that has a single <see cref="Composite.Root"/> activity and returns a result.
+/// </summary>
+[PublicAPI]
+public abstract class Composite<T> : Composite, IActivityWithResult<T>
 {
     /// <inheritdoc />
     protected Composite([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
+    }
+
+    /// <summary>
+    /// The result of the activity.
+    /// </summary>
+    [Output] public Output<T>? Result { get; set; }
+
+    Output? IActivityWithResult.Result
+    {
+        get => Result;
+        set => Result = (Output<T>?)value;
     }
 }

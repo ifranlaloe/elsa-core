@@ -1,7 +1,10 @@
 using Elsa.Abstractions;
 using Elsa.Common.Entities;
 using Elsa.Common.Models;
+using Elsa.Workflows.Api.Models;
+using Elsa.Workflows.Core;
 using Elsa.Workflows.Management.Contracts;
+using Elsa.Workflows.Management.Filters;
 using Elsa.Workflows.Management.Models;
 using JetBrains.Annotations;
 
@@ -25,58 +28,73 @@ internal class List : ElsaEndpoint<Request, Response>
 
     public override async Task<Response> ExecuteAsync(Request request, CancellationToken cancellationToken)
     {
-        var pageArgs = new PageArgs(request.Page, request.PageSize);
+        var pageArgs = PageArgs.FromPage(request.Page, request.PageSize);
 
         var filter = new WorkflowInstanceFilter
         {
             SearchTerm = request.SearchTerm,
             DefinitionId = request.DefinitionId,
+            DefinitionIds = request.DefinitionIds,
             Version = request.Version,
             CorrelationId = request.CorrelationId,
             WorkflowStatus = request.Status,
-            WorkflowSubStatus = request.SubStatus
+            WorkflowSubStatus = request.SubStatus,
+            WorkflowStatuses = request.Statuses?.Select(Enum.Parse<WorkflowStatus>).ToList(),
+            WorkflowSubStatuses = request.SubStatuses?.Select(Enum.Parse<WorkflowSubStatus>).ToList()
         };
 
-        var direction = request.OrderDirection == OrderDirection.Ascending ? OrderDirection.Ascending : OrderDirection.Descending;
-        var summaries = await FindAsync(request, filter, pageArgs, direction, cancellationToken);
+        var summaries = await FindAsync(request, filter, pageArgs, cancellationToken);
         return new Response(summaries.Items, summaries.TotalCount);
     }
 
-    private async Task<Page<WorkflowInstanceSummary>> FindAsync(Request request, WorkflowInstanceFilter filter, PageArgs pageArgs, OrderDirection direction, CancellationToken cancellationToken)
+    private async Task<Page<WorkflowInstanceSummary>> FindAsync(Request request, WorkflowInstanceFilter filter, PageArgs pageArgs, CancellationToken cancellationToken)
     {
-        switch (request.OrderBy ?? OrderBy.Created)
+        request.OrderBy = request.OrderBy ?? OrderByWorkflowInstance.Created;
+        var direction = request.OrderBy == OrderByWorkflowInstance.Name ? (request.OrderDirection ?? OrderDirection.Ascending) : (request.OrderDirection ?? OrderDirection.Descending);
+
+        switch (request.OrderBy)
         {
             default:
-            case OrderBy.Created:
-            {
-                var o = new WorkflowInstanceOrder<DateTimeOffset>
+            case OrderByWorkflowInstance.Created:
                 {
-                    KeySelector = p => p.CreatedAt,
-                    Direction = direction
-                };
+                    var o = new WorkflowInstanceOrder<DateTimeOffset>
+                    {
+                        KeySelector = p => p.CreatedAt,
+                        Direction = direction
+                    };
 
-                return await _store.SummarizeManyAsync(filter, pageArgs, o, cancellationToken);
-            }
-            case OrderBy.LastExecuted:
-            {
-                var o = new WorkflowInstanceOrder<DateTimeOffset?>
+                    return await _store.SummarizeManyAsync(filter, pageArgs, o, cancellationToken);
+                }
+            case OrderByWorkflowInstance.UpdatedAt:
                 {
-                    KeySelector = p => p.LastExecutedAt,
-                    Direction = direction
-                };
+                    var o = new WorkflowInstanceOrder<DateTimeOffset?>
+                    {
+                        KeySelector = p => p.UpdatedAt,
+                        Direction = direction
+                    };
 
-                return await _store.SummarizeManyAsync(filter, pageArgs, o, cancellationToken);
-            }
-            case OrderBy.Finished:
-            {
-                var o = new WorkflowInstanceOrder<DateTimeOffset?>
+                    return await _store.SummarizeManyAsync(filter, pageArgs, o, cancellationToken);
+                }
+            case OrderByWorkflowInstance.Finished:
                 {
-                    KeySelector = p => p.FinishedAt,
-                    Direction = direction
-                };
+                    var o = new WorkflowInstanceOrder<DateTimeOffset?>
+                    {
+                        KeySelector = p => p.FinishedAt,
+                        Direction = direction
+                    };
 
-                return await _store.SummarizeManyAsync(filter, pageArgs, o, cancellationToken);
-            }
+                    return await _store.SummarizeManyAsync(filter, pageArgs, o, cancellationToken);
+                }
+            case OrderByWorkflowInstance.Name:
+                {
+                    var o = new WorkflowInstanceOrder<string>
+                    {
+                        KeySelector = p => p.Name,
+                        Direction = direction
+                    };
+
+                    return await _store.SummarizeManyAsync(filter, pageArgs, o, cancellationToken);
+                }
         }
     }
 }

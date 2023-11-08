@@ -1,7 +1,5 @@
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Middleware.Workflows;
-using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
 
 namespace Elsa.Workflows.Core.Pipelines.WorkflowExecution;
 
@@ -35,5 +33,7 @@ public class WorkflowExecutionPipeline : IWorkflowExecutionPipeline
     /// <inheritdoc />
     public async Task ExecuteAsync(WorkflowExecutionContext context) => await Pipeline(context);
 
-    private WorkflowMiddlewareDelegate CreateDefaultPipeline() => Setup(x => x.UseDefaultActivityScheduler());
+    private WorkflowMiddlewareDelegate CreateDefaultPipeline() => Setup(x => x
+        .UseExceptionHandling()
+        .UseDefaultActivityScheduler());
 }

@@ -1,18 +1,15 @@
 using System.ComponentModel;
 using System.Dynamic;
 using System.Reflection;
-using System.Text.Json.Nodes;
+using Elsa.Common.Contracts;
 using Elsa.Common.Features;
 using Elsa.Expressions.Contracts;
 using Elsa.Extensions;
 using Elsa.Features.Abstractions;
 using Elsa.Features.Attributes;
 using Elsa.Features.Services;
-using Elsa.Mediator.Features;
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Features;
-using Elsa.Workflows.Core.Serialization;
-using Elsa.Workflows.Core.Services;
 using Elsa.Workflows.Management.Activities.WorkflowDefinitionActivity;
 using Elsa.Workflows.Management.Contracts;
 using Elsa.Workflows.Management.Entities;
@@ -23,17 +20,20 @@ using Elsa.Workflows.Management.Options;
 using Elsa.Workflows.Management.Providers;
 using Elsa.Workflows.Management.Serialization;
 using Elsa.Workflows.Management.Services;
+using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Elsa.Workflows.Management.Features;
 
 /// <summary>
-/// Installs & configures the workflow management feature.
+/// Installs and configures the workflow management feature.
 /// </summary>
 [DependsOn(typeof(MediatorFeature))]
 [DependsOn(typeof(SystemClockFeature))]
 [DependsOn(typeof(WorkflowsFeature))]
 [DependsOn(typeof(WorkflowDefinitionsFeature))]
+[DependsOn(typeof(WorkflowInstancesFeature))]
+[PublicAPI]
 public class WorkflowManagementFeature : FeatureBase
 {
     private const string PrimitivesCategory = "Primitives";
@@ -58,30 +58,29 @@ public class WorkflowManagementFeature : FeatureBase
         new(typeof(object), PrimitivesCategory, "The root class for all object in the CLR System."),
         new(typeof(string), PrimitivesCategory, "Represents a static string of characters."),
         new(typeof(bool), PrimitivesCategory, "Represents a true or false value."),
-        new(typeof(short), PrimitivesCategory, "A 16 bit integer."),
-        new(typeof(int), PrimitivesCategory, "A 32 bit integer."),
         new(typeof(long), PrimitivesCategory, "A 64 bit integer."),
-        new(typeof(float), PrimitivesCategory, "A real number."),
         new(typeof(double), PrimitivesCategory, "A real number with double precision."),
         new(typeof(decimal), PrimitivesCategory, "A decimal number."),
         new(typeof(Guid), PrimitivesCategory, "Represents a Globally Unique Identifier."),
         new(typeof(DateTime), PrimitivesCategory, "A value type that represents a date and time."),
         new(typeof(DateTimeOffset), PrimitivesCategory, "A value type that consists of a DateTime and a time zone offset."),
         new(typeof(TimeSpan), PrimitivesCategory, "Represents a duration of time."),
-        new(typeof(DateOnly), PrimitivesCategory, "Represents dates with values ranging from January 1, 0001 Anno Domini (Common Era) through December 31, 9999 A.D. (C.E.) in the Gregorian calendar."),
-        new(typeof(TimeOnly), PrimitivesCategory, "Represents a time of day, as would be read from a clock, within the range 00:00:00 to 23:59:59.9999999."),
         new(typeof(IDictionary<string, string>), LookupsCategory, "A dictionary with string key and values."),
         new(typeof(IDictionary<string, object>), LookupsCategory, "A dictionary with string key and object values."),
-        new (typeof(ExpandoObject), DynamicCategory, "A dictionary that can be typed as dynamic to access members using dot notation."),
-        new (typeof(JsonObject), DynamicCategory, "A type from System.Text.Json that provides dynamic access to the object.")
+        new(typeof(ExpandoObject), DynamicCategory, "A dictionary that can be typed as dynamic to access members using dot notation.")
     };
 
     /// <summary>
     /// Adds the specified activity type to the system.
     /// </summary>
-    public WorkflowManagementFeature AddActivity<T>() where T : IActivity
+    public WorkflowManagementFeature AddActivity<T>() where T : IActivity => AddActivity(typeof(T));
+
+    /// <summary>
+    /// Adds the specified activity type to the system.
+    /// </summary>
+    public WorkflowManagementFeature AddActivity(Type activityType)
     {
-        ActivityTypes.Add(typeof(T));
+        ActivityTypes.Add(activityType);
         return this;
     }
 
@@ -91,7 +90,7 @@ public class WorkflowManagementFeature : FeatureBase
     public WorkflowManagementFeature AddActivitiesFrom<TMarker>()
     {
         var activityTypes = typeof(TMarker).Assembly.GetExportedTypes()
-            .Where(x => typeof(IActivity).IsAssignableFrom(x) && !x.IsAbstract && !x.IsInterface && !x.IsGenericType)
+            .Where(x => typeof(IActivity).IsAssignableFrom(x) && x is { IsAbstract: false, IsInterface: false, IsGenericType: false })
             .ToList();
         return AddActivities(activityTypes);
     }
@@ -106,10 +105,24 @@ public class WorkflowManagementFeature : FeatureBase
     }
 
     /// <summary>
+    /// Removes the specified activity type from the system.
+    /// </summary>
+    public WorkflowManagementFeature RemoveActivity<T>() where T : IActivity => RemoveActivity(typeof(T));
+
+    /// <summary>
+    /// Adds the specified activity type to the system.
+    /// </summary>
+    public WorkflowManagementFeature RemoveActivity(Type activityType)
+    {
+        ActivityTypes.Remove(activityType);
+        return this;
+    }
+
+    /// <summary>
     /// Adds the specified variable type to the system.
     /// </summary>
     public WorkflowManagementFeature AddVariableType<T>(string category) => AddVariableType(typeof(T), category);
-    
+
     /// <summary>
     /// Adds the specified variable type to the system.
     /// </summary>
@@ -143,26 +156,27 @@ public class WorkflowManagementFeature : FeatureBase
             .AddMemoryStore<WorkflowDefinition, MemoryWorkflowDefinitionStore>()
             .AddMemoryStore<WorkflowInstance, MemoryWorkflowInstanceStore>()
             .AddActivityProvider<TypedActivityProvider>()
+            .AddSingleton<IWorkflowDefinitionService, WorkflowDefinitionService>()
+            .AddSingleton<IWorkflowSerializer, WorkflowSerializer>()
+            .AddSingleton<IWorkflowValidator, WorkflowValidator>()
             .AddSingleton<IWorkflowDefinitionPublisher, WorkflowDefinitionPublisher>()
+            .AddSingleton<IWorkflowDefinitionImporter, WorkflowDefinitionImporter>()
             .AddSingleton<IWorkflowDefinitionManager, WorkflowDefinitionManager>()
-            .AddSingleton<IActivityDescriber, ActivityDescriber>()
-            .AddSingleton<IActivityRegistry, ActivityRegistry>()
+            .AddSingleton<IWorkflowInstanceManager, WorkflowInstanceManager>()
             .AddSingleton<IActivityRegistryPopulator, ActivityRegistryPopulator>()
-            .AddSingleton<IPropertyDefaultValueResolver, PropertyDefaultValueResolver>()
-            .AddSingleton<IPropertyOptionsResolver, PropertyOptionsResolver>()
-            .AddSingleton<IActivityFactory, ActivityFactory>()
             .AddSingleton<IExpressionSyntaxRegistry, ExpressionSyntaxRegistry>()
             .AddSingleton<IExpressionSyntaxProvider, DefaultExpressionSyntaxProvider>()
             .AddSingleton<IExpressionSyntaxRegistryPopulator, ExpressionSyntaxRegistryPopulator>()
             .AddSingleton<ISerializationOptionsConfigurator, SerializationOptionsConfigurator>()
             .AddSingleton<IWorkflowMaterializer, ClrWorkflowMaterializer>()
             .AddSingleton<IWorkflowMaterializer, JsonWorkflowMaterializer>()
-            .AddSingleton<IActivityPortResolver, WorkflowDefinitionActivityPortResolver>()
+            .AddSingleton<IActivityResolver, WorkflowDefinitionActivityResolver>()
             .AddActivityProvider<WorkflowDefinitionActivityProvider>()
-            .AddSingleton<SerializerOptionsProvider>()
+            .AddSingleton<WorkflowDefinitionMapper>()
             .AddSingleton<VariableDefinitionMapper>()
+            .AddSingleton<WorkflowStateMapper>()
             ;
-        
+
         Services.AddNotificationHandlersFrom(GetType());
 
         Services.Configure<ManagementOptions>(options =>

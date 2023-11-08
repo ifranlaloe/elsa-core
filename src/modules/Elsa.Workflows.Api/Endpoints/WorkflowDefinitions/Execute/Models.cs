@@ -1,23 +1,31 @@
 using System.Text.Json.Serialization;
+using Elsa.Common.Models;
 using Elsa.Workflows.Core.Serialization.Converters;
+using Elsa.Workflows.Core.State;
 
 namespace Elsa.Workflows.Api.Endpoints.WorkflowDefinitions.Execute;
 
-public class Request
+internal class Request
 {
     public string DefinitionId { get; set; } = default!;
     public string? CorrelationId { get; set; }
-    
-    [JsonConverter(typeof(ExpandoObjectConverter))]
+    public string? TriggerActivityId { get; set; }
+
+    [Obsolete("Use VersionOptions instead.")]
+    public int? Version { get; set; }
+
+    public VersionOptions? VersionOptions { get; set; }
+
+    [JsonConverter(typeof(ExpandoObjectConverterFactory))]
     public object? Input { get; set; }
 }
 
-public class Response
+internal class Response
 {
-    public Response(string instanceId)
+    public Response(WorkflowState workflowState)
     {
-        InstanceId = instanceId;
+        WorkflowState = workflowState;
     }
-    
-    public string InstanceId { get; }
+
+    public WorkflowState WorkflowState { get; }
 }

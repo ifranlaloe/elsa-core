@@ -1,6 +1,10 @@
 using Elsa.Abstractions;
+using Elsa.Common.Entities;
 using Elsa.Common.Models;
+using Elsa.Workflows.Api.Models;
 using Elsa.Workflows.Runtime.Contracts;
+using Elsa.Workflows.Runtime.Filters;
+using Elsa.Workflows.Runtime.OrderDefinitions;
 using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Api.Endpoints.WorkflowInstances.Journal.List;
@@ -9,7 +13,7 @@ namespace Elsa.Workflows.Api.Endpoints.WorkflowInstances.Journal.List;
 /// Gets the journal for a workflow instance.
 /// </summary>
 [PublicAPI]
-public class Get : ElsaEndpoint<Request, Response>
+internal class Get : ElsaEndpoint<Request, Response>
 {
     private readonly IWorkflowExecutionLogStore _store;
 
@@ -29,9 +33,10 @@ public class Get : ElsaEndpoint<Request, Response>
     /// <inheritdoc />
     public override async Task<Response> ExecuteAsync(Request request, CancellationToken cancellationToken)
     {
-        var pageArgs = new PageArgs(request.Page, request.PageSize);
+        var pageArgs = PageArgs.From(request.Page, request.PageSize, request.Skip, request.Take);
         var filter = new WorkflowExecutionLogRecordFilter { WorkflowInstanceId = request.WorkflowInstanceId };
-        var pageOfRecords = await _store.FindManyAsync(filter, pageArgs, cancellationToken);
+        var order = new WorkflowExecutionLogRecordOrder<long>(x => x.Sequence, OrderDirection.Ascending);
+        var pageOfRecords = await _store.FindManyAsync(filter, pageArgs, order, cancellationToken);
 
         var models = pageOfRecords.Items.Select(x =>
                 new ExecutionLogRecord(
@@ -40,7 +45,11 @@ public class Get : ElsaEndpoint<Request, Response>
                     x.ParentActivityInstanceId,
                     x.ActivityId,
                     x.ActivityType,
+                    x.ActivityTypeVersion,
+                    x.ActivityName,
+                    x.ActivityNodeId,
                     x.Timestamp,
+                    x.Sequence,
                     x.EventName,
                     x.Message,
                     x.Source,

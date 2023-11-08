@@ -1,6 +1,5 @@
 using System.Text.Json.Serialization;
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Services;
 
 namespace Elsa.Workflows.Core.Activities.Flowchart.Models;
 
@@ -73,4 +72,6 @@ internal class FlowScope
     }
 
     public long GetExecutionCount(IActivity activity) => Activities.ContainsKey(activity.Id) ? Activities[activity.Id].ExecutionCount : 0;
+
+    public void Clear() => Activities.Clear();
 }

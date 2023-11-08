@@ -1,8 +1,9 @@
 using System.ComponentModel;
-using System.Text.Json.Serialization;
+using System.Runtime.CompilerServices;
 using Elsa.Expressions.Helpers;
 using Elsa.Extensions;
 using Elsa.MassTransit.Implementations;
+using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Models;
 using MassTransit;
@@ -16,8 +17,7 @@ namespace Elsa.MassTransit.Activities;
 public class PublishMessage : CodeActivity
 {
     /// <inheritdoc />
-    [JsonConstructor]
-    public PublishMessage()
+    public PublishMessage([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }
 

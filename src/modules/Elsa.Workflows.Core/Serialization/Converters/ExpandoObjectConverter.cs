@@ -7,12 +7,12 @@ namespace Elsa.Workflows.Core.Serialization.Converters;
 /// <summary>
 /// Parses a JON string into a dynamic <see cref="ExpandoObject"/>.
 /// </summary>
-public class ExpandoObjectConverter : JsonConverter<object>
+public sealed class ExpandoObjectConverter : JsonConverter<object>
 {
     /// <inheritdoc />
     public override void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options)
     {
-        throw new NotImplementedException();
+        JsonSerializer.Serialize(writer, value, typeof(ExpandoObject), options);
     }
 
     /// <inheritdoc />
@@ -43,16 +43,16 @@ public class ExpandoObjectConverter : JsonConverter<object>
             }
             case JsonTokenType.StartArray:
             {
-                var list = new List<ExpandoObject>();
+                var list = new List<object>();
                 while (reader.Read())
                 {
                     switch (reader.TokenType)
                     {
                         default:
-                            list.Add((ExpandoObject)Read(ref reader, typeof(ExpandoObject), options));
+                            list.Add(Read(ref reader, typeof(object), options));
                             break;
                         case JsonTokenType.EndArray:
-                            return list;
+                            return list.ToArray();
                     }
                 }
 
@@ -69,7 +69,8 @@ public class ExpandoObjectConverter : JsonConverter<object>
                         case JsonTokenType.PropertyName:
                             var key = reader.GetString()!;
                             reader.Read();
-                            dict.Add(key, Read(ref reader, typeof(object), options));
+                            var value = Read(ref reader, typeof(object), options)!;
+                            dict.Add(key, value);
                             break;
                         default:
                             throw new JsonException();
@@ -82,5 +83,5 @@ public class ExpandoObjectConverter : JsonConverter<object>
         }
     }
 
-    protected virtual IDictionary<string, object> CreateDictionary() => new ExpandoObject()!;
+    private IDictionary<string, object> CreateDictionary() => new ExpandoObject()!;
 }

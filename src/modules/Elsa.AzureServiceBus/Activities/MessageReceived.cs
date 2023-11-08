@@ -1,8 +1,9 @@
-using System.Text.Json.Serialization;
+using System.Runtime.CompilerServices;
 using Elsa.AzureServiceBus.Models;
 using Elsa.Common.Contracts;
 using Elsa.Expressions.Models;
 using Elsa.Extensions;
+using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Models;
 
@@ -11,14 +12,13 @@ namespace Elsa.AzureServiceBus.Activities;
 /// <summary>
 /// Triggered when a message is received on a specified queue or topic and subscription.
 /// </summary>
-[Activity("Elsa.AzureServiceBus.MessageReceived", "Azure Service Bus", "Executes when a message is received from the configured queue or topic and subscription")]
+[Activity("Elsa.AzureServiceBus", "Azure Service Bus", "Executes when a message is received from the configured queue or topic and subscription")]
 public class MessageReceived : Trigger
 {
     internal const string InputKey = "TransportMessage";
 
     /// <inheritdoc />
-    [JsonConstructor]
-    public MessageReceived()
+    public MessageReceived([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }
 
@@ -88,21 +88,21 @@ public class MessageReceived : Trigger
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
     {
         // If we did not receive external input, it means we are just now encountering this activity.
-        if (!context.TryGetInput<ReceivedServiceBusMessageModel>(InputKey, out var receivedMessage))
+        if (context.IsTriggerOfWorkflow())
+        {
+            await Resume(context);
+        }
+        else
         {
             // Create bookmarks for when we receive the expected HTTP request.
-            context.CreateBookmark(GetBookmarkPayload(context.ExpressionExecutionContext), Resume);
+            context.CreateBookmark(GetBookmarkPayload(context.ExpressionExecutionContext), Resume,false);
             return;
         }
-
-        // Provide the received message as output.
-        await SetResultAsync(receivedMessage, context);
-        await context.CompleteActivityAsync();
     }
 
     private async ValueTask Resume(ActivityExecutionContext context)
     {
-        var receivedMessage = context.GetInput<ReceivedServiceBusMessageModel>(InputKey);
+        var receivedMessage = context.GetWorkflowInput<ReceivedServiceBusMessageModel>(InputKey);
         await SetResultAsync(receivedMessage, context);
         await context.CompleteActivityAsync();
     }
@@ -111,7 +111,7 @@ public class MessageReceived : Trigger
     {
         var bodyAsString = new BinaryData(receivedMessage.Body).ToString();
         var targetType = context.Get(MessageType);
-        var formatter = Formatter.TryGet(context);
+        var formatter = Formatter.GetOrDefault(context);
         var body = formatter == null ? bodyAsString : await formatter.FromStringAsync(bodyAsString, targetType, context.CancellationToken);
 
         context.Set(TransportMessage, receivedMessage);

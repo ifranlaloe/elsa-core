@@ -1,13 +1,16 @@
+using System.IO;
+using System.Linq;
 using System.Net;
-using System.Net.Mime;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using Elsa.Extensions;
+using Elsa.Http.ActivityOptionProviders;
 using Elsa.Http.ContentWriters;
 using Elsa.Http.Models;
-using Elsa.Http.Providers;
 using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Attributes;
+using Elsa.Workflows.Core.Exceptions;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Management.Models;
 using Microsoft.AspNetCore.Http;
 
 namespace Elsa.Http;
@@ -16,8 +19,13 @@ namespace Elsa.Http;
 /// Write a response to the current HTTP response object.
 /// </summary>
 [Activity("Elsa", "HTTP", "Write a response to the current HTTP response object.", DisplayName = "HTTP Response")]
-public class WriteHttpResponse : CodeActivity
+public class WriteHttpResponse : Activity
 {
+    /// <inheritdoc />
+    public WriteHttpResponse([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
+    {
+    }
+    
     /// <summary>
     /// The status code to return.
     /// </summary>
@@ -34,8 +42,8 @@ public class WriteHttpResponse : CodeActivity
     /// The content type to use when returning the response.
     /// </summary>
     [Input(
-        Description = "The content type to use when returning the response.",
-        OptionsProvider = typeof(WriteHttpResponseContentTypeOptionsProvider),
+        Description = "The content type to write when sending the response.",
+        OptionsProvider = typeof(HttpContentTypeOptionsProvider),
         UIHint = InputUIHints.Dropdown
     )]
     public Input<string?> ContentType { get; set; } = default!;
@@ -43,7 +51,7 @@ public class WriteHttpResponse : CodeActivity
     /// <summary>
     /// The headers to return along with the response.
     /// </summary>
-    [Input(Description = "The headers to return along with the response.", Category = "Advanced")]
+    [Input(Description = "The headers to send along with the response.", Category = "Advanced")]
     public Input<HttpResponseHeaders?> ResponseHeaders { get; set; } = new(new HttpResponseHeaders());
 
     /// <inheritdoc />
@@ -57,7 +65,7 @@ public class WriteHttpResponse : CodeActivity
             // We're executing in a non-HTTP context (e.g. in a virtual actor).
             // Create a bookmark to allow the invoker to export the state and resume execution from there.
 
-            context.CreateBookmark(OnResumeAsync);
+            context.CreateBookmark(OnResumeAsync, BookmarkMetadata.HttpCrossBoundary);
             return;
         }
 
@@ -72,7 +80,7 @@ public class WriteHttpResponse : CodeActivity
         if (httpContext == null)
         {
             // We're not in an HTTP context, so let's fail.
-            throw new Exception("Cannot execute in a non-HTTP context");
+            throw new FaultException("Cannot execute in a non-HTTP context");
         }
 
         await WriteResponseAsync(context, httpContext.Response);
@@ -81,33 +89,43 @@ public class WriteHttpResponse : CodeActivity
     private async Task WriteResponseAsync(ActivityExecutionContext context, HttpResponse response)
     {
         // Set status code.
-        response.StatusCode = (int)context.Get(StatusCode);
+        var statusCode = StatusCode.GetOrDefault(context, () => HttpStatusCode.OK);
+        response.StatusCode = (int)statusCode;
 
         // Add headers.
-        var headers = ResponseHeaders.TryGet(context) ?? new HttpResponseHeaders();
+        var headers = context.GetHeaders(ResponseHeaders);
         foreach (var header in headers)
             response.Headers.Add(header.Key, header.Value);
 
         // Get content and content type.
         var content = context.Get(Content);
 
-        if (content == null)
-            return;
+        if (content != null)
+        {
+            var contentType = ContentType.GetOrDefault(context);
 
-        var contentType = ContentType.TryGet(context) ?? MediaTypeNames.Text.Plain;
+            if (string.IsNullOrWhiteSpace(contentType))
+                contentType = DetermineContentType(content);
 
-        if (string.IsNullOrWhiteSpace(contentType))
-            contentType = DetermineContentType(content);
+            var factories = context.GetServices<IHttpContentFactory>();
+            var factory = factories.FirstOrDefault(httpContentFactory => httpContentFactory.SupportedContentTypes.Any(c => c == contentType)) ?? new TextContentFactory();
+            var httpContent = factory.CreateHttpContent(content, contentType);
 
-        var contentWriter = context.GetServices<IHttpContentFactory>().FirstOrDefault(x => x.SupportsContentType(contentType)) ?? new TextContentFactory();
-        var httpContent = contentWriter.CreateHttpContent(content, contentType);
+            // Set content type.
+            response.ContentType = httpContent.Headers.ContentType?.ToString() ?? contentType;
 
-        // Set content type.
-        response.ContentType = httpContent.Headers.ContentType?.ToString() ?? contentType;
-
-        // Write content.
-        await httpContent.CopyToAsync(response.Body);
+            // Write content.
+            if (statusCode != HttpStatusCode.NoContent)
+                await httpContent.CopyToAsync(response.Body);
+        }
+        
+        // Complete activity.
+        await context.CompleteActivityAsync();
     }
 
-    private string DetermineContentType(object? content) => content is byte[] or Stream ? "application/octet-stream" : "text/plain";
+    private string DetermineContentType(object? content) => content is byte[] or Stream
+        ? "application/octet-stream"
+        : content is string
+            ? "text/plain"
+            : "application/json";
 }

@@ -1,6 +1,12 @@
 using Elsa.Mediator.Contracts;
-using Elsa.Workflows.Runtime.Models;
+using Elsa.Workflows.Core;
 
 namespace Elsa.Workflows.Runtime.Notifications;
 
-public record WorkflowBookmarksIndexed(IndexedWorkflowBookmarks IndexedWorkflowBookmarks) : INotification;
+/// <summary>
+/// A notification that is sent when the bookmarks of a workflow instance have been indexed.
+/// </summary>
+/// <param name="WorkflowExecutionContext">The workflow execution context.</param>
+/// <param name="IndexedWorkflowBookmarks">The bookmarks that were added, removed, or unchanged.</param>
+public record WorkflowBookmarksIndexed(WorkflowExecutionContext WorkflowExecutionContext, IndexedWorkflowBookmarks IndexedWorkflowBookmarks) : INotification;
+

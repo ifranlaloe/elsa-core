@@ -1,7 +1,6 @@
 using Elsa.Features.Services;
 using Elsa.Workflows.Core.Activities;
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Services;
 using Elsa.Workflows.Management.Features;
 
 // ReSharper disable once CheckNamespace
@@ -24,7 +23,7 @@ public static class ModuleExtensions
         });
         return module;
     }
-    
+
     /// <summary>
     /// Adds the default workflow management feature to the specified module. 
     /// </summary>
@@ -33,7 +32,7 @@ public static class ModuleExtensions
         feature.Module.Configure(configure);
         return feature;
     }
-    
+
     /// <summary>
     /// Adds the workflow instance feature to workflow management module. 
     /// </summary>
@@ -44,12 +43,26 @@ public static class ModuleExtensions
     }
 
     /// <summary>
+    /// Adds the Elsa DSL integration feature.
+    /// </summary>
+    public static WorkflowManagementFeature UseDslIntegration(this WorkflowManagementFeature feature, Action<DslIntegrationFeature>? configure = default)
+    {
+        feature.Module.Configure(configure);
+        return feature;
+    }
+
+    /// <summary>
     /// Adds all types implementing <see cref="IActivity"/> to the system.
     /// </summary>
     public static IModule AddActivitiesFrom<TMarkerType>(this IModule module) => module.UseWorkflowManagement(management => management.AddActivitiesFrom<TMarkerType>());
-    
+
     /// <summary>
     /// Adds the specified activity type to the system.
     /// </summary>
-    public static IModule AddActivity<T>(this IModule module) where T:IActivity => module.UseWorkflowManagement(management => management.AddActivity<T>());
+    public static IModule AddActivity<T>(this IModule module) where T : IActivity => module.UseWorkflowManagement(management => management.AddActivity<T>());
+    
+    /// <summary>
+    /// Removes the specified activity type from the system.
+    /// </summary>
+    public static IModule RemoveActivity<T>(this IModule module) where T : IActivity => module.UseWorkflowManagement(management => management.RemoveActivity<T>());
 }

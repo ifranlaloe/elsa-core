@@ -1,5 +1,7 @@
-﻿using Elsa.Common.Models;
+﻿using Elsa.Common.Entities;
+using Elsa.Common.Models;
 using Elsa.Workflows.Management.Contracts;
+using Elsa.Workflows.Management.Filters;
 using FastEndpoints;
 using JetBrains.Annotations;
 using Microsoft.AspNetCore.Http;
@@ -32,7 +34,8 @@ internal class ListVersions : EndpointWithoutRequest
             VersionOptions = VersionOptions.All
         };
         
-        var definitions = await _store.FindManyAsync(filter, cancellationToken);
+        var orderBy = new WorkflowDefinitionOrder<int>(x => x.Version, OrderDirection.Descending);
+        var definitions = await _store.FindManyAsync(filter, orderBy, cancellationToken);
         
         if (!definitions.Any())
         {

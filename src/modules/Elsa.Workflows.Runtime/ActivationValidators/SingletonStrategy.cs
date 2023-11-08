@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Runtime.Contracts;
+using Elsa.Workflows.Runtime.Requests;
 
 namespace Elsa.Workflows.Runtime.ActivationValidators;
 
@@ -25,7 +26,7 @@ public class SingletonStrategy : IWorkflowActivationStrategy
     /// </summary>
     public async ValueTask<bool> GetAllowActivationAsync(WorkflowInstantiationStrategyContext context)
     {
-        var countArgs = new CountRunningWorkflowsArgs
+        var countArgs = new CountRunningWorkflowsRequest
         {
             DefinitionId = context.Workflow.Identity.DefinitionId
         };

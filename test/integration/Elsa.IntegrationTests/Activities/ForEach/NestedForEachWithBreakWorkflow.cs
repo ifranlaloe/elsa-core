@@ -1,8 +1,7 @@
-using Elsa.Workflows.Core.Abstractions;
+using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Activities;
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
+using Elsa.Workflows.Core.Memory;
 
 namespace Elsa.IntegrationTests.Activities;
 
@@ -17,7 +16,7 @@ class NestedForEachWithBreakWorkflow : WorkflowBase
 
         workflow.Root = new ForEach<string>(outerItems)
         {
-            CurrentValue = new Output<string?>(currentOuterItem),
+            CurrentValue = new (currentOuterItem),
             Body = new Sequence
             {
                 Activities =
@@ -25,7 +24,7 @@ class NestedForEachWithBreakWorkflow : WorkflowBase
                     new WriteLine(currentOuterItem),
                     new ForEach<string>(innerItems)
                     {
-                        CurrentValue = new Output<string?>(currentInnerItem),
+                        CurrentValue = new (currentInnerItem),
                         Body = new Sequence
                         {
                             Activities =

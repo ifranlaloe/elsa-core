@@ -1,12 +1,10 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
 using Elsa.Extensions;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
 using Elsa.Workflows.Core.Signals;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Core.Activities;
 
@@ -14,17 +12,17 @@ namespace Elsa.Workflows.Core.Activities;
 /// Execute a set of activities in sequence.
 /// </summary>
 [Category("Workflows")]
-[Browsable(false)]
 [Activity("Elsa", "Workflows", "Execute a set of activities in sequence.")]
+[PublicAPI]
+[Browsable(false)]
 public class Sequence : Container
 {
     private const string CurrentIndexProperty = "CurrentIndex";
 
     /// <inheritdoc />
-    [JsonConstructor]
     public Sequence([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
-        OnSignalReceived<BreakSignal>(OnBreak);
+        OnSignalReceived<BreakSignal>(OnBreakSignalReceived);
     }
 
     /// <inheritdoc />
@@ -37,26 +35,37 @@ public class Sequence : Container
     {
         var currentIndex = context.GetProperty<int>(CurrentIndexProperty);
         var childActivities = Activities.ToList();
-            
+
         if (currentIndex >= childActivities.Count)
         {
             await context.CompleteActivityAsync();
             return;
         }
-            
+
         var nextActivity = childActivities.ElementAt(currentIndex);
         await context.ScheduleActivityAsync(nextActivity, OnChildCompleted);
         context.UpdateProperty<int>(CurrentIndexProperty, x => x + 1);
     }
 
-    private async ValueTask OnChildCompleted(ActivityExecutionContext context, ActivityExecutionContext childContext)
+    private async ValueTask OnChildCompleted(ActivityCompletedContext context)
     {
-        await HandleItemAsync(context);
+        var targetContext = context.TargetContext;
+        var childContext = context.ChildContext;
+        var isBreaking = targetContext.GetIsBreaking();
+        var completedActivity = childContext.Activity;
+
+        // If the complete activity is a terminal node, complete the sequence immediately.
+        if (isBreaking || completedActivity is ITerminalNode)
+        {
+            await targetContext.CompleteActivityAsync();
+            return;
+        }
+
+        await HandleItemAsync(targetContext);
     }
-    
-    private void OnBreak(BreakSignal signal, SignalContext context)
+
+    private void OnBreakSignalReceived(BreakSignal signal, SignalContext signalContext)
     {
-        // Clear any scheduled child completion callbacks, since we no longer want to schedule any siblings. 
-        context.ReceiverActivityExecutionContext.ClearCompletionCallbacks();
+        signalContext.ReceiverActivityExecutionContext.SetIsBreaking();
     }
 }

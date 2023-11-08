@@ -1,4 +1,8 @@
-using Elsa.Workflows.Runtime.Contracts;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Elsa.Workflows.Core.Models;
+using Elsa.Workflows.Core.State;
+using Elsa.Workflows.Runtime.Results;
 
 namespace Elsa.Http.Contracts;
 
@@ -10,9 +14,9 @@ public interface IHttpBookmarkProcessor
     /// <summary>
     /// Processes the specified <see cref="executionResults"/> by resuming each HTTP bookmark while we are in an HTTP context.
     /// </summary>
-    Task ProcessBookmarks(
+    Task<IEnumerable<WorkflowState>> ProcessBookmarks(
         IEnumerable<WorkflowExecutionResult> executionResults,
-        string? correlationId,
-        IDictionary<string, object>? input,
-        CancellationToken cancellationToken = default);
+        string? correlationId = default,
+        IDictionary<string, object>? input = default,
+        CancellationTokens cancellationToken = default);
 }

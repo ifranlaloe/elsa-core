@@ -1,18 +1,17 @@
 using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
 using Elsa.Workflows.Core.Attributes;
-using Elsa.Workflows.Core.Models;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Core.Activities;
 
 /// <summary>
-/// Mark the workflow as finished.
+/// Marks the start of a flowchart.
 /// </summary>
-[Activity("Elsa", "Primitives", "A milestone activity with no behavior other than marking a milestone.", Kind = ActivityKind.Action)]
+[Activity("Elsa", "Flow", "A milestone activity that marks the start of a flowchart.", Kind = ActivityKind.Action)]
+[PublicAPI]
 public class Start : CodeActivity
 {
     /// <inheritdoc />
-    [JsonConstructor]
     public Start([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }

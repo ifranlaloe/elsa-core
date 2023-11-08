@@ -1,12 +1,13 @@
 ﻿using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
 using Elsa.Extensions;
 using Elsa.Telnyx.Bookmarks;
 using Elsa.Telnyx.Helpers;
 using Elsa.Telnyx.Models;
-using Elsa.Telnyx.Payloads.Abstract;
+using Elsa.Telnyx.Payloads.Abstractions;
+using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Attributes;
+using Elsa.Workflows.Core.Memory;
 using Elsa.Workflows.Core.Models;
 
 namespace Elsa.Telnyx.Activities;
@@ -19,7 +20,6 @@ namespace Elsa.Telnyx.Activities;
 public class WebhookEvent : Activity<Payload>
 {
     /// <inheritdoc />
-    [JsonConstructor]
     public WebhookEvent([CallerFilePath]string? source = default, [CallerLineNumber]int? line = default) : base(source, line)
     {
     }
@@ -48,13 +48,13 @@ public class WebhookEvent : Activity<Payload>
             var eventType = EventType;
             var payload = new WebhookEventBookmarkPayload(eventType);
             
-            context.CreateBookmark(new CreateBookmarkOptions(payload, Resume, Type));
+            context.CreateBookmark(new CreateBookmarkArgs(payload, Resume, Type, false));
         }
     }
 
     private async ValueTask Resume(ActivityExecutionContext context)
     {
-        var input = context.GetInput<TelnyxWebhook>(WebhookSerializerOptions.Create());
+        var input = context.GetWorkflowInput<TelnyxWebhook>(WebhookSerializerOptions.Create());
         context.Set(Result, input.Data.Payload);
         await CompleteAsync(context);
     }

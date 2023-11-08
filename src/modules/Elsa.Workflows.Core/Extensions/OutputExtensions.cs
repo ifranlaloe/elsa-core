@@ -1,4 +1,7 @@
+using System.Runtime.CompilerServices;
 using Elsa.Expressions.Models;
+using Elsa.Workflows.Core;
+using Elsa.Workflows.Core.Memory;
 using Elsa.Workflows.Core.Models;
 
 // ReSharper disable once CheckNamespace
@@ -17,7 +20,7 @@ public static class OutputExtensions
     /// <summary>
     /// Sets the output to the specified value.
     /// </summary>
-    public static void Set<T>(this Output<T>? output, ActivityExecutionContext context, T? value) => context.Set(output, value);
+    public static void Set<T>(this Output<T>? output, ActivityExecutionContext context, T? value, [CallerArgumentExpression("output")] string? outputName = default) => context.Set(output, value, outputName);
     
     /// <summary>
     /// Sets the output to the specified value.

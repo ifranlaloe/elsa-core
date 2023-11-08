@@ -1,5 +1,4 @@
 ﻿using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
 using Elsa.Extensions;
 using Elsa.Telnyx.Attributes;
 using Elsa.Telnyx.Bookmarks;
@@ -11,8 +10,6 @@ using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Activities.Flowchart.Attributes;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Management.Models;
-using Elsa.Workflows.Runtime.Contracts;
 using Refit;
 
 namespace Elsa.Telnyx.Activities;
@@ -23,10 +20,9 @@ namespace Elsa.Telnyx.Activities;
 [Activity(Constants.Namespace, "Convert text to speech and play it on the call until the required DTMF signals are gathered to build interactive menus.", Kind = ActivityKind.Task)]
 [FlowNode("Valid input", "Invalid input", "Disconnected")]
 [WebhookDriven(WebhookEventTypes.CallGatherEnded)]
-public class GatherUsingSpeak : Activity<CallGatherEndedPayload>, IBookmarksPersistedHandler
+public class GatherUsingSpeak : Activity<CallGatherEndedPayload>
 {
     /// <inheritdoc />
-    [JsonConstructor]
     public GatherUsingSpeak([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }
@@ -35,7 +31,7 @@ public class GatherUsingSpeak : Activity<CallGatherEndedPayload>, IBookmarksPers
     /// The call control ID of the call from which to gather input. Leave empty to use the ambient call control ID, if there is any.
     /// </summary>
     [Input(DisplayName = "Call Control ID", Description = "The call control ID of the call from which to gather input. Leave empty to use the ambient call control ID, if there is any.", Category = "Advanced")]
-    public Input<string?> CallControlId { get; set; } = default!;
+    public Input<string> CallControlId { get; set; } = default!;
         
     /// <summary>
     /// The language you want spoken.
@@ -144,34 +140,37 @@ public class GatherUsingSpeak : Activity<CallGatherEndedPayload>, IBookmarksPers
         DefaultValue = 60000
     )]
     public Input<int?>? TimeoutMillis { get; set; } = new(60000);
-    
-    /// <summary>
-    /// Calls out to Telnyx to start gathering input.
-    /// </summary>
-    public async ValueTask BookmarksPersistedAsync(ActivityExecutionContext context)
+
+    /// <inheritdoc />
+    protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
     {
+        var callControlId = CallControlId.Get(context);
+        
         var request = new GatherUsingSpeakRequest(
             Language.Get(context) ?? throw new Exception("Language is required."),
             Voice.Get(context) ?? throw new Exception("Voice is required."),
             Payload.Get(context) ?? throw new Exception("Payload is required."),
-            PayloadType.TryGet(context),
-            ServiceLevel.TryGet(context),
-            InterDigitTimeoutMillis.TryGet(context),
-            MaximumDigits.TryGet(context),
-            MaximumTries.TryGet(context),
-            MinimumDigits.TryGet(context),
-            TerminatingDigit.TryGet(context).EmptyToNull(),
-            TimeoutMillis.TryGet(context),
-            ValidDigits.TryGet(context).EmptyToNull(),
-            context.CreateCorrelatingClientState()
+            PayloadType.GetOrDefault(context),
+            ServiceLevel.GetOrDefault(context),
+            InterDigitTimeoutMillis.GetOrDefault(context),
+            MaximumDigits.GetOrDefault(context),
+            MaximumTries.GetOrDefault(context),
+            MinimumDigits.GetOrDefault(context),
+            TerminatingDigit.GetOrDefault(context).EmptyToNull(),
+            TimeoutMillis.GetOrDefault(context),
+            ValidDigits.GetOrDefault(context).EmptyToNull(),
+            context.CreateCorrelatingClientState(context.Id)
         );
-
-        var callControlId = context.GetPrimaryCallControlId(CallControlId) ?? throw new Exception("CallControlId is required");
+        
         var telnyxClient = context.GetRequiredService<ITelnyxClient>();
 
         try
         {
+            // Send the request to Telnyx.
             await telnyxClient.Calls.GatherUsingSpeakAsync(callControlId, request, context.CancellationToken);
+            
+            // Create a bookmark so we can resume this activity when the call.gather.ended webhook comes back.
+            context.CreateBookmark(new WebhookEventBookmarkPayload(WebhookEventTypes.CallGatherEnded, callControlId), ResumeAsync, true);
         }
         catch (ApiException e)
         {
@@ -180,12 +179,9 @@ public class GatherUsingSpeak : Activity<CallGatherEndedPayload>, IBookmarksPers
         }
     }
 
-    /// <inheritdoc />
-    protected override void Execute(ActivityExecutionContext context) => context.CreateBookmark(new WebhookEventBookmarkPayload(WebhookEventTypes.CallGatherEnded), ResumeAsync);
-
     private async ValueTask ResumeAsync(ActivityExecutionContext context)
     {
-        var payload = context.GetInput<CallGatherEndedPayload>();
+        var payload = context.GetWorkflowInput<CallGatherEndedPayload>();
         var outcome = payload.Status == "valid" ? "Valid input" : "Invalid input";
         context.Set(Result, payload);
         await context.CompleteActivityWithOutcomesAsync(outcome);

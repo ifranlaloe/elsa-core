@@ -1,48 +1,56 @@
-using System.Text.Json;
 using Elsa.Common.Contracts;
 using Elsa.Common.Entities;
 using Elsa.Common.Models;
 using Elsa.Mediator.Contracts;
 using Elsa.Workflows.Core.Activities;
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Serialization;
-using Elsa.Workflows.Core.Services;
 using Elsa.Workflows.Management.Contracts;
 using Elsa.Workflows.Management.Entities;
+using Elsa.Workflows.Management.Filters;
 using Elsa.Workflows.Management.Materializers;
+using Elsa.Workflows.Management.Models;
 using Elsa.Workflows.Management.Notifications;
+using Elsa.Workflows.Management.Requests;
 
 namespace Elsa.Workflows.Management.Services;
 
 /// <inheritdoc />
 public class WorkflowDefinitionPublisher : IWorkflowDefinitionPublisher
 {
+    private readonly IWorkflowDefinitionService _workflowDefinitionService;
     private readonly IWorkflowDefinitionStore _workflowDefinitionStore;
-    private readonly IEventPublisher _eventPublisher;
+    private readonly INotificationSender _notificationSender;
     private readonly IIdentityGenerator _identityGenerator;
-    private readonly SerializerOptionsProvider _serializerOptionsProvider;
+    private readonly IActivitySerializer _activitySerializer;
+    private readonly IRequestSender _requestSender;
     private readonly ISystemClock _systemClock;
 
     /// <summary>
     /// Constructor.
     /// </summary>
     public WorkflowDefinitionPublisher(
+        IWorkflowDefinitionService workflowDefinitionService,
         IWorkflowDefinitionStore workflowDefinitionStore,
-        IEventPublisher eventPublisher,
+        IWorkflowValidator workflowValidator,
+        INotificationSender notificationSender,
         IIdentityGenerator identityGenerator,
-        SerializerOptionsProvider serializerOptionsProvider,
+        IActivitySerializer activitySerializer,
+        IRequestSender requestSender,
         ISystemClock systemClock)
     {
+        _workflowDefinitionService = workflowDefinitionService;
         _workflowDefinitionStore = workflowDefinitionStore;
-        _eventPublisher = eventPublisher;
+        _notificationSender = notificationSender;
         _identityGenerator = identityGenerator;
-        _serializerOptionsProvider = serializerOptionsProvider;
+        _activitySerializer = activitySerializer;
+        _requestSender = requestSender;
         _systemClock = systemClock;
     }
 
     /// <inheritdoc />
-    public WorkflowDefinition New()
+    public WorkflowDefinition New(IActivity? root = default)
     {
+        root ??= new Sequence();
         var id = _identityGenerator.GenerateId();
         var definitionId = _identityGenerator.GenerateId();
         const int version = 1;
@@ -55,27 +63,37 @@ public class WorkflowDefinitionPublisher : IWorkflowDefinitionPublisher
             IsLatest = true,
             IsPublished = false,
             CreatedAt = _systemClock.UtcNow,
-            StringData = JsonSerializer.Serialize(new Sequence(), _serializerOptionsProvider.CreateDefaultOptions()),
+            StringData = _activitySerializer.Serialize(root),
             MaterializerName = JsonWorkflowMaterializer.MaterializerName
         };
     }
 
     /// <inheritdoc />
-    public async Task<WorkflowDefinition?> PublishAsync(string definitionId, CancellationToken cancellationToken = default)
+    public async Task<PublishWorkflowDefinitionResult> PublishAsync(string definitionId, CancellationToken cancellationToken = default)
     {
         var filter = new WorkflowDefinitionFilter { DefinitionId = definitionId, VersionOptions = VersionOptions.Latest };
         var definition = await _workflowDefinitionStore.FindAsync(filter, cancellationToken);
 
         if (definition == null)
-            return null;
+            return new PublishWorkflowDefinitionResult(false, new List<WorkflowValidationError>
+            {
+                new("Workflow definition not found.")
+            });
 
         return await PublishAsync(definition, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<WorkflowDefinition> PublishAsync(WorkflowDefinition definition, CancellationToken cancellationToken = default)
+    public async Task<PublishWorkflowDefinitionResult> PublishAsync(WorkflowDefinition definition, CancellationToken cancellationToken = default)
     {
-        await _eventPublisher.PublishAsync(new WorkflowDefinitionPublishing(definition), cancellationToken);
+        var workflow = await _workflowDefinitionService.MaterializeWorkflowAsync(definition, cancellationToken);
+        var responses = await _requestSender.SendAsync(new ValidateWorkflowRequest(workflow), cancellationToken);
+        var validationErrors = responses.SelectMany(r => r.ValidationErrors).ToList();
+
+        if (validationErrors.Any())
+            return new PublishWorkflowDefinitionResult(false, validationErrors);
+        
+        await _notificationSender.SendAsync(new WorkflowDefinitionPublishing(definition), cancellationToken);
 
         var definitionId = definition.DefinitionId;
 
@@ -95,8 +113,8 @@ public class WorkflowDefinitionPublisher : IWorkflowDefinitionPublisher
         definition = Initialize(definition);
         await _workflowDefinitionStore.SaveAsync(definition, cancellationToken);
 
-        await _eventPublisher.PublishAsync(new WorkflowDefinitionPublished(definition), cancellationToken);
-        return definition;
+        await _notificationSender.SendAsync(new WorkflowDefinitionPublished(definition), cancellationToken);
+        return new PublishWorkflowDefinitionResult(true, validationErrors);
     }
 
     /// <inheritdoc />
@@ -120,9 +138,9 @@ public class WorkflowDefinitionPublisher : IWorkflowDefinitionPublisher
         definition.IsPublished = false;
         definition = Initialize(definition);
 
-        await _eventPublisher.PublishAsync(new WorkflowDefinitionRetracting(definition), cancellationToken);
+        await _notificationSender.SendAsync(new WorkflowDefinitionRetracting(definition), cancellationToken);
         await _workflowDefinitionStore.SaveAsync(definition, cancellationToken);
-        await _eventPublisher.PublishAsync(new WorkflowDefinitionRetracted(definition), cancellationToken);
+        await _notificationSender.SendAsync(new WorkflowDefinitionRetracted(definition), cancellationToken);
         return definition;
     }
 
@@ -132,7 +150,7 @@ public class WorkflowDefinitionPublisher : IWorkflowDefinitionPublisher
         var filter = new WorkflowDefinitionFilter { DefinitionId = definitionId, VersionOptions = versionOptions };
         var order = new WorkflowDefinitionOrder<int>(x => x.Version, OrderDirection.Descending);
         var lastVersion = await _workflowDefinitionStore.FindLastVersionAsync(new WorkflowDefinitionFilter { DefinitionId = definitionId }, cancellationToken);
-        var definition = (await _workflowDefinitionStore.FindAsync(filter, order, cancellationToken)) ?? lastVersion;
+        var definition = await _workflowDefinitionStore.FindAsync(filter, order, cancellationToken) ?? lastVersion;
 
         if (definition == null!)
             return null;
@@ -143,6 +161,7 @@ public class WorkflowDefinitionPublisher : IWorkflowDefinitionPublisher
         var draft = definition.ShallowClone();
 
         draft.Version = lastVersion?.Version + 1 ?? 1;
+        draft.CreatedAt = _systemClock.UtcNow;
         draft.Id = _identityGenerator.GenerateId();
         draft.IsLatest = true;
         draft.IsPublished = false;
@@ -157,12 +176,17 @@ public class WorkflowDefinitionPublisher : IWorkflowDefinitionPublisher
         var definitionId = definition.DefinitionId;
         var filter = new WorkflowDefinitionFilter { DefinitionId = definitionId };
         var lastVersion = await _workflowDefinitionStore.FindLastVersionAsync(filter, cancellationToken);
-        
+
         draft.Version = draft.Id == lastVersion?.Id ? lastVersion.Version : lastVersion?.Version + 1 ?? 1;
         draft.IsLatest = true;
         draft = Initialize(draft);
 
         await _workflowDefinitionStore.SaveAsync(draft, cancellationToken);
+
+        if (lastVersion is null)
+        {
+            await _notificationSender.SendAsync(new WorkflowDefinitionCreated(definition), cancellationToken);
+        }
 
         if (lastVersion is { IsPublished: true, IsLatest: true })
         {

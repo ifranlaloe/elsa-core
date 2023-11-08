@@ -1,3 +1,6 @@
+using System.Reflection;
+using Elsa.Workflows.Core.Contracts;
+
 namespace Elsa.Workflows.Core.Models;
 
 /// <summary>
@@ -14,22 +17,28 @@ public class InputDescriptor : PropertyDescriptor
     public InputDescriptor(
         string name,
         Type type,
+        Func<IActivity, object?> valueGetter,
+        Action<IActivity, object?> valueSetter,
         bool isWrapped,
         string uiHint,
         string displayName,
         string? description = default,
-        object? options = default,
+        IDictionary<string, object>? options = default,
         string? category = default,
         float order = 0,
         object? defaultValue = default,
         string? defaultSyntax = "Literal",
-        //IEnumerable<string>? supportedSyntaxes = default,
         bool isReadOnly = false,
         bool isBrowsable = true,
-        bool isSynthetic = false)
+        bool isSerializable = true,
+        bool isSynthetic = false,
+        Type? storageDriverType = default,
+        PropertyInfo? propertyInfo = default)
     {
         Name = name;
         Type = type;
+        ValueGetter = valueGetter;
+        ValueSetter = valueSetter;
         IsWrapped = isWrapped;
         UIHint = uiHint;
         DisplayName = displayName;
@@ -39,16 +48,19 @@ public class InputDescriptor : PropertyDescriptor
         Order = order;
         DefaultValue = defaultValue;
         DefaultSyntax = defaultSyntax;
-        //SupportedSyntaxes = supportedSyntaxes?.ToList() ?? new List<string>();
         IsReadOnly = isReadOnly;
+        StorageDriverType = storageDriverType;
         IsSynthetic = isSynthetic;
         IsBrowsable = isBrowsable;
+        IsSerializable = isSerializable;
+        PropertyInfo = propertyInfo;
     }
 
     /// <summary>
     /// True if the property is wrapped with an <see cref="Input{T}"/> type, false otherwise.
     /// </summary>
     public bool IsWrapped { get; set; }
+    
     /// <summary>
     /// A string value that hints at what UI control might be used to render in a UI tool.  
     /// </summary>
@@ -73,10 +85,15 @@ public class InputDescriptor : PropertyDescriptor
     /// The default syntax.
     /// </summary>
     public string? DefaultSyntax { get; set; }
-    //public ICollection<string> SupportedSyntaxes { get; set; } = new List<string>();
     
     /// <summary>
     /// True if the input is readonly, false otherwise.
     /// </summary>
     public bool? IsReadOnly { get; set; }
+    
+    /// <summary>
+    /// The storage driver type to use for persistence.
+    /// If no driver is specified, the referenced memory block will remain in memory for as long as the expression execution context exists.
+    /// </summary>
+    public Type? StorageDriverType { get; set; }
 }

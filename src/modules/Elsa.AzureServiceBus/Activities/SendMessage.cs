@@ -1,7 +1,9 @@
+using System.Runtime.CompilerServices;
 using Azure.Messaging.ServiceBus;
 using Elsa.Common.Contracts;
 using Elsa.Common.Services;
 using Elsa.Extensions;
+using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Models;
 using JetBrains.Annotations;
@@ -15,6 +17,11 @@ namespace Elsa.AzureServiceBus.Activities;
 [PublicAPI]
 public class SendMessage : CodeActivity
 {
+    /// <inheritdoc />
+    public SendMessage([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
+    {
+    }
+    
     /// <summary>
     /// The contents of the message to send.
     /// </summary>
@@ -45,6 +52,15 @@ public class SendMessage : CodeActivity
     /// The formatter to use when serializing the message body.
     /// </summary>
     public Input<Type?> FormatterType { get; set; } = default!;
+    /// <summary>
+    /// The application properties to embed with the Service Bus Message
+    /// </summary>
+    [Input(Category = "Advanced", 
+        DefaultSyntax = "Json", 
+        SupportedSyntaxes = new[] { "JavaScript", "Json" }, 
+        UIHint = InputUIHints.MultiLine)
+        ]
+    public Input<IDictionary<string, object>?> ApplicationProperties { get; set; } = default;
 
     /// <inheritdoc />
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
@@ -62,6 +78,9 @@ public class SendMessage : CodeActivity
 
             // TODO: Maybe expose additional members?
         };
+        if (context.Get(ApplicationProperties) != null)
+            foreach (var property in context.Get(ApplicationProperties))
+                message.ApplicationProperties.Add(property.Key, ((System.Text.Json.JsonElement)property.Value).GetString());
 
         var client = context.GetRequiredService<ServiceBusClient>();
 
@@ -73,7 +92,7 @@ public class SendMessage : CodeActivity
     {
         if (value is string s) return BinaryData.FromString(s);
 
-        var formatterType = FormatterType.TryGet(context) ?? typeof(JsonFormatter);
+        var formatterType = FormatterType.GetOrDefault(context) ?? typeof(JsonFormatter);
         var formatter = context.GetServices<IFormatter>().First(x => x.GetType() == formatterType);
         var data = await formatter.ToStringAsync(value, cancellationToken);
 

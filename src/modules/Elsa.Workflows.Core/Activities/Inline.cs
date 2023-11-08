@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Elsa.Expressions.Models;
 using Elsa.Workflows.Core.Attributes;
-using Elsa.Workflows.Core.Models;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Core.Activities;
 
@@ -11,10 +11,16 @@ namespace Elsa.Workflows.Core.Activities;
 /// </summary>
 [Browsable(false)]
 [Activity("Elsa", "Primitives", "Evaluate a Boolean condition to determine which path to execute next.")]
+[PublicAPI]
 public class Inline : CodeActivity
 {
-    private readonly Func<ActivityExecutionContext, ValueTask> _activity;
+    private readonly Func<ActivityExecutionContext, ValueTask> _activity = default!;
 
+    /// <inheritdoc />
+    public Inline([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
+    {
+    }
+    
     /// <inheritdoc />
     public Inline(Func<ActivityExecutionContext, ValueTask> activity, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
@@ -91,6 +97,7 @@ public class Inline : CodeActivity
 /// <summary>
 /// Represents an inline code activity that can be used to execute arbitrary .NET code from a workflow and return a value.
 /// </summary>
+[PublicAPI]
 public class Inline<T> : CodeActivity<T>
 {
     private readonly Func<ActivityExecutionContext, ValueTask<T>> _activity;

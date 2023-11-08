@@ -1,11 +1,10 @@
 using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
 using Elsa.Expressions.Models;
 using Elsa.Extensions;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Models;
-using Elsa.Workflows.Core.Services;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Core.Activities;
 
@@ -13,24 +12,31 @@ namespace Elsa.Workflows.Core.Activities;
 /// Evaluate a Boolean condition to determine which activity to execute next.
 /// </summary>
 [Activity("Elsa", "Branching", "Evaluate a Boolean condition to determine which activity to execute next.")]
+[PublicAPI]
 public class If : Activity<bool>
 {
     /// <inheritdoc />
-    [JsonConstructor]
     public If([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }
 
     /// <inheritdoc />
-    public If(Input<bool> condition, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : this(source, line) =>
+    public If(Input<bool> condition, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : this(source, line)
+    {
         Condition = condition;
+    }
 
     /// <inheritdoc />
-    public If(Func<ExpressionExecutionContext, bool> condition, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : this(source, line) =>
+    public If(Func<ExpressionExecutionContext, bool> condition, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : this(source, line)
+    {
         Condition = new Input<bool>(condition);
+    }
 
     /// <inheritdoc />
-    public If(Func<bool> condition, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : this(source, line) => Condition = new Input<bool>(condition);
+    public If(Func<bool> condition, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : this(source, line)
+    {
+        Condition = new Input<bool>(condition);
+    }
 
     /// <summary>
     /// The condition to evaluate.
@@ -54,14 +60,14 @@ public class If : Activity<bool>
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
     {
         var result = context.Get(Condition);
-        var nextNode = result ? Then : Else;
+        var nextActivity = result ? Then : Else;
 
         context.Set(Result, result);
-        await context.ScheduleActivityAsync(nextNode, OnChildCompleted);
+        await context.ScheduleActivityAsync(nextActivity, OnChildCompleted);
     }
 
-    private async ValueTask OnChildCompleted(ActivityExecutionContext context, ActivityExecutionContext childContext)
+    private async ValueTask OnChildCompleted(ActivityCompletedContext context)
     {
-        await context.CompleteActivityAsync();
+        await context.TargetContext.CompleteActivityAsync();
     }
 }

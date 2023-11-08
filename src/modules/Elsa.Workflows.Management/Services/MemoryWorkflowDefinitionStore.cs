@@ -3,6 +3,7 @@ using Elsa.Common.Services;
 using Elsa.Extensions;
 using Elsa.Workflows.Management.Contracts;
 using Elsa.Workflows.Management.Entities;
+using Elsa.Workflows.Management.Filters;
 using Elsa.Workflows.Management.Models;
 
 namespace Elsa.Workflows.Management.Services;
@@ -13,17 +14,13 @@ namespace Elsa.Workflows.Management.Services;
 public class MemoryWorkflowDefinitionStore : IWorkflowDefinitionStore
 {
     private readonly MemoryStore<WorkflowDefinition> _store;
-    private readonly MemoryStore<WorkflowInstance> _instanceStore;
 
     /// <summary>
     /// Constructor.
     /// </summary>
-    public MemoryWorkflowDefinitionStore(
-        MemoryStore<WorkflowDefinition> store,
-        MemoryStore<WorkflowInstance> instanceStore)
+    public MemoryWorkflowDefinitionStore(MemoryStore<WorkflowDefinition> store)
     {
         _store = store;
-        _instanceStore = instanceStore;
     }
 
     /// <inheritdoc />
@@ -108,26 +105,25 @@ public class MemoryWorkflowDefinitionStore : IWorkflowDefinitionStore
     }
 
     /// <inheritdoc />
-    public Task SaveAsync(WorkflowDefinition record, CancellationToken cancellationToken = default)
+    public Task SaveAsync(WorkflowDefinition definition, CancellationToken cancellationToken = default)
     {
-        _store.Save(record, GetId);
+        _store.Save(definition, GetId);
         return Task.CompletedTask;
     }
 
     /// <inheritdoc />
-    public Task SaveManyAsync(IEnumerable<WorkflowDefinition> records, CancellationToken cancellationToken = default)
+    public Task SaveManyAsync(IEnumerable<WorkflowDefinition> definitions, CancellationToken cancellationToken = default)
     {
-        _store.SaveMany(records, GetId);
+        _store.SaveMany(definitions, GetId);
         return Task.CompletedTask;
     }
 
     /// <inheritdoc />
-    public Task<int> DeleteAsync(WorkflowDefinitionFilter filter, CancellationToken cancellationToken = default)
+    public Task<long> DeleteAsync(WorkflowDefinitionFilter filter, CancellationToken cancellationToken = default)
     {
         var workflowDefinitionIds = _store.Query(query => Filter(query, filter)).Select(x => x.DefinitionId).Distinct().ToList();
-        _instanceStore.DeleteWhere(x => workflowDefinitionIds.Contains(x.DefinitionId));
         _store.DeleteWhere(x => workflowDefinitionIds.Contains(x.DefinitionId));
-        return Task.FromResult(workflowDefinitionIds.Count);
+        return Task.FromResult(workflowDefinitionIds.LongCount());
     }
 
     /// <inheritdoc />
@@ -136,7 +132,20 @@ public class MemoryWorkflowDefinitionStore : IWorkflowDefinitionStore
         var exists = _store.Query(query => Filter(query, filter)).Any();
         return Task.FromResult(exists);
     }
-    
+
+    /// <inheritdoc />
+    public Task<long> CountDistinctAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(_store.Count(x => true, x => x.DefinitionId));
+    }
+
+    /// <inheritdoc />
+    public Task<bool> GetIsNameUnique(string name, string? definitionId = default, CancellationToken cancellationToken = default)
+    {
+        var exists = _store.Any(x => x.Name == name && x.DefinitionId != definitionId);
+        return Task.FromResult(!exists);
+    }
+
     private IQueryable<WorkflowDefinition> Filter(IQueryable<WorkflowDefinition> queryable, WorkflowDefinitionFilter filter) => filter.Apply(queryable);
 
     private string GetId(WorkflowDefinition workflowDefinition) => workflowDefinition.Id;

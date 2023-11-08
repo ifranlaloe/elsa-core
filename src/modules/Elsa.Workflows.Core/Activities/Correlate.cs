@@ -1,15 +1,20 @@
 using System.ComponentModel;
-using System.Text.Json.Serialization;
+using System.Runtime.CompilerServices;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Models;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Core.Activities;
 
+/// <summary>
+/// Set the CorrelationId of the workflow to a given value.
+/// </summary>
 [Activity("Elsa", "Primitives", "Set the CorrelationId of the workflow to a given value.")]
+[PublicAPI]
 public class Correlate : CodeActivity
 {
-    [JsonConstructor]
-    public Correlate()
+    /// <inheritdoc />
+    public Correlate([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }
     
@@ -18,8 +23,9 @@ public class Correlate : CodeActivity
     /// </summary>
     [Description("An expression that evaluates to the value to store as the correlation id")]
     public Input<string> CorrelationId { get; set; } = default!;
-    
-    protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
+
+    /// <inheritdoc />
+    protected override void Execute(ActivityExecutionContext context)
     {
         var correlationId = context.Get(CorrelationId);
         context.WorkflowExecutionContext.CorrelationId = correlationId;

@@ -1,6 +1,6 @@
 using Elsa.MassTransit.Messages;
 using Elsa.Workflows.Runtime.Contracts;
-using Elsa.Workflows.Runtime.Models;
+using Elsa.Workflows.Runtime.Requests;
 using MassTransit;
 
 namespace Elsa.MassTransit.Implementations;
@@ -28,7 +28,8 @@ public class MassTransitWorkflowDispatcher : IWorkflowDispatcher
             request.VersionOptions,
             request.Input,
             request.CorrelationId,
-            request.InstanceId
+            request.InstanceId,
+            request.TriggerActivityId
         ), cancellationToken);
         return new();
     }
@@ -40,6 +41,9 @@ public class MassTransitWorkflowDispatcher : IWorkflowDispatcher
             request.InstanceId,
             request.BookmarkId,
             request.ActivityId,
+            request.ActivityNodeId,
+            request.ActivityInstanceId,
+            request.ActivityHash,
             request.Input,
             request.CorrelationId
         ), cancellationToken);
@@ -53,6 +57,8 @@ public class MassTransitWorkflowDispatcher : IWorkflowDispatcher
             request.ActivityTypeName,
             request.BookmarkPayload,
             request.CorrelationId,
+            request.WorkflowInstanceId,
+            request.ActivityInstanceId,
             request.Input
         ), cancellationToken);
         return new();
@@ -65,6 +71,8 @@ public class MassTransitWorkflowDispatcher : IWorkflowDispatcher
             request.ActivityTypeName,
             request.BookmarkPayload,
             request.CorrelationId,
+            request.WorkflowInstanceId,
+            request.ActivityInstanceId,
             request.Input
         ), cancellationToken);
         return new();

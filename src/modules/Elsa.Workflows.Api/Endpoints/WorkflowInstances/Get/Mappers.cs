@@ -6,7 +6,7 @@ namespace Elsa.Workflows.Api.Endpoints.WorkflowInstances.Get;
 /// <summary>
 /// Maps a <see cref="WorkflowInstance"/> to <see cref="Response"/>.
 /// </summary>
-public class WorkflowInstanceMapper : ResponseMapper<Response, WorkflowInstance>
+internal class WorkflowInstanceMapper : ResponseMapper<Response, WorkflowInstance>
 {
     /// <inheritdoc />
     public override Response FromEntity(WorkflowInstance e) => new()
@@ -20,12 +20,9 @@ public class WorkflowInstanceMapper : ResponseMapper<Response, WorkflowInstance>
         SubStatus = e.SubStatus,
         CorrelationId = e.CorrelationId,
         Name = e.Name,
-        Properties = e.WorkflowState.Properties,
-        Fault = e.WorkflowState.Fault,
-        CancelledAt = e.CancelledAt,
+        IncidentCount = e.IncidentCount,
         CreatedAt = e.CreatedAt,
-        FaultedAt = e.FaultedAt,
         FinishedAt = e.FinishedAt,
-        LastExecutedAt = e.LastExecutedAt
+        UpdatedAt = e.UpdatedAt
     };
 }

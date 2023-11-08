@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Elsa.Expressions.Models;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Contracts;
+using Elsa.Workflows.Core.Memory;
 using Elsa.Workflows.Core.Models;
 using Elsa.Workflows.Core.Services;
 
@@ -16,13 +17,8 @@ namespace Elsa.Workflows.Core.Activities;
 public class WriteLine : CodeActivity
 {
     /// <inheritdoc />
-    internal WriteLine([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
-    {
-    }
-
-    /// <inheritdoc />
     [JsonConstructor]
-    public WriteLine()
+    private WriteLine(string? source = default, int? line = default) : base(source, line)
     {
     }
 

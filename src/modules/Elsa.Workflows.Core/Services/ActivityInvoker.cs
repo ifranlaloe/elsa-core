@@ -1,5 +1,5 @@
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Models;
+using Elsa.Workflows.Core.Options;
 
 namespace Elsa.Workflows.Core.Services;
 
@@ -17,21 +17,30 @@ public class ActivityInvoker : IActivityInvoker
     }
 
     /// <inheritdoc />
-    public async Task InvokeAsync(
-        WorkflowExecutionContext workflowExecutionContext,
-        IActivity activity,
-        ActivityExecutionContext? owner)
+    public async Task InvokeAsync(WorkflowExecutionContext workflowExecutionContext, IActivity activity, ActivityInvocationOptions? options = default)
     {
-        // Setup an activity execution context.
-        var activityExecutionContext = workflowExecutionContext.CreateActivityExecutionContext(activity, owner);
+        // Setup an activity execution context, potentially reusing an existing one if requested.
+        var existingActivityExecutionContext = options?.ExistingActivityExecutionContext;
 
-        // Add the activity context to the workflow context.
-        workflowExecutionContext.AddActivityExecutionContext(activityExecutionContext);
+        // Perform a lookup to make sure the activity execution context is part of the workflow execution context.
+        var activityExecutionContext = existingActivityExecutionContext != null
+            ? workflowExecutionContext.ActivityExecutionContexts.FirstOrDefault(x => x.Id == existingActivityExecutionContext.Id)
+            : default;
+
+        if (activityExecutionContext == null)
+        {
+            // Create a new activity execution context.
+            activityExecutionContext = workflowExecutionContext.CreateActivityExecutionContext(activity, options);
+
+            // Add the activity context to the workflow context.
+            workflowExecutionContext.AddActivityExecutionContext(activityExecutionContext);
+        }
 
         // Execute the activity execution pipeline.
         await InvokeAsync(activityExecutionContext);
     }
 
+    /// <inheritdoc />
     public async Task InvokeAsync(ActivityExecutionContext activityExecutionContext)
     {
         // Execute the activity execution pipeline.

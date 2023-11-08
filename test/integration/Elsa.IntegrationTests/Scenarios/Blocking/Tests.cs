@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 using Elsa.Extensions;
 using Elsa.Testing.Shared;
 using Elsa.Workflows.Core.Contracts;
-using Elsa.Workflows.Core.Services;
+using Elsa.Workflows.Core.Options;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Xunit.Abstractions;
@@ -38,10 +38,10 @@ public class Tests
         
         // Start workflow.
         var result = await _workflowRunner.RunAsync(workflow);
-        var bookmark = result.WorkflowState.Bookmarks.FirstOrDefault(x => x.ActivityNodeId == "Workflow1:Sequence1:Resume");
+        var bookmark = result.WorkflowState.Bookmarks.FirstOrDefault(x => x.ActivityId == "Resume");
 
         // Resume workflow.
-        var runOptions = new RunWorkflowOptions(BookmarkId: bookmark!.Id);
+        var runOptions = new RunWorkflowOptions(bookmarkId: bookmark!.Id);
         await _workflowRunner.RunAsync(workflow, result.WorkflowState, runOptions);
         
         // Verify expected output.

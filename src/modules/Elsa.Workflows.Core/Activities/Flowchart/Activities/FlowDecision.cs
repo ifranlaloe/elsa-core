@@ -5,6 +5,7 @@ using Elsa.Workflows.Core.Activities.Flowchart.Attributes;
 using Elsa.Workflows.Core.Activities.Flowchart.Models;
 using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Models;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Core.Activities.Flowchart.Activities;
 
@@ -12,12 +13,25 @@ namespace Elsa.Workflows.Core.Activities.Flowchart.Activities;
 /// Performs a boolean condition and returns an outcome based on the the result.
 /// </summary>
 [FlowNode("True", "False")]
-[Activity("Elsa", "Flow", "Evaluate a Boolean condition to determine which path to execute next.")]
+[Activity("Elsa", "Branching", "Evaluate a Boolean condition to determine which path to execute next.", DisplayName = "Decision")]
+[PublicAPI]
 public class FlowDecision : Activity
 {
     /// <inheritdoc />
     public FlowDecision([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
+    }
+
+    /// <inheritdoc />
+    public FlowDecision(Func<ExpressionExecutionContext, bool> condition, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : this(source, line)
+    {
+        Condition = new(condition);
+    }
+    
+    /// <inheritdoc />
+    public FlowDecision(Func<ExpressionExecutionContext, ValueTask<bool>> condition, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : this(source, line)
+    {
+        Condition = new(condition);
     }
     
     /// <summary>
@@ -32,6 +46,6 @@ public class FlowDecision : Activity
         var result = context.Get(Condition);
         var outcome = result ? "True" : "False";
 
-        await context.CompleteActivityAsync(new Outcomes(outcome));
+        await context.CompleteActivityWithOutcomesAsync(outcome);
     }
 }

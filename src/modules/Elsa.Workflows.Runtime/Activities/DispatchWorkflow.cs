@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Elsa.Common.Models;
 using Elsa.Extensions;
 using Elsa.Workflows.Core;
@@ -6,7 +7,7 @@ using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Models;
 using Elsa.Workflows.Runtime.Bookmarks;
 using Elsa.Workflows.Runtime.Contracts;
-using Elsa.Workflows.Runtime.Models;
+using Elsa.Workflows.Runtime.Requests;
 using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Runtime.Activities;
@@ -16,8 +17,13 @@ namespace Elsa.Workflows.Runtime.Activities;
 /// </summary>
 [Activity("Elsa", "Composition", "Create a new workflow instance of the specified workflow and dispatch it for execution.")]
 [PublicAPI]
-public class DispatchWorkflow : Activity<object>, IBookmarksPersistedHandler
+public class DispatchWorkflow : Activity<object>
 {
+    /// <inheritdoc />
+    public DispatchWorkflow([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
+    {
+    }
+
     /// <summary>
     /// The definition ID of the workflow to dispatch. 
     /// </summary>
@@ -48,20 +54,28 @@ public class DispatchWorkflow : Activity<object>, IBookmarksPersistedHandler
     /// <inheritdoc />
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
     {
-        var waitForCompletion = WaitForCompletion.TryGet(context);
+        var waitForCompletion = WaitForCompletion.GetOrDefault(context);
         var identityGenerator = context.GetRequiredService<IIdentityGenerator>();
         var instanceId = identityGenerator.GenerateId();
         context.TransientProperties["ChildInstanceId"] = instanceId;
 
+        // Dispatch the child workflow.
+        await DispatchChildWorkflowAsync(context);
+
         // If we need to wait for the child workflow to complete, create a bookmark.
         if (waitForCompletion)
         {
-            context.CreateBookmark(new DispatchWorkflowBookmark(instanceId), OnChildWorkflowCompletedAsync);
+            var bookmarkOptions = new CreateBookmarkArgs
+            {
+                Callback = OnChildWorkflowCompletedAsync,
+                Payload = new DispatchWorkflowBookmark(instanceId),
+                IncludeActivityInstanceId = false
+            };
+            context.CreateBookmark(bookmarkOptions);
         }
         else
         {
-            // Otherwise, we can complete.
-            await BookmarksPersistedAsync(context);
+            // Otherwise, we can complete immediately.
             await context.CompleteActivityAsync();
         }
     }
@@ -71,25 +85,32 @@ public class DispatchWorkflow : Activity<object>, IBookmarksPersistedHandler
     /// This prevents a potential race condition where the child workflow finishes before our current workflow execution pipeline had a chance to persist its bookmarks. 
     /// </summary>
     /// <param name="context"></param>
-    public async ValueTask BookmarksPersistedAsync(ActivityExecutionContext context)
+    private async ValueTask DispatchChildWorkflowAsync(ActivityExecutionContext context)
     {
         var workflowDefinitionId = WorkflowDefinitionId.Get(context);
-        var input = Input.TryGet(context) ?? new Dictionary<string, object>();
+        var input = Input.GetOrDefault(context) ?? new Dictionary<string, object>();
 
         input["ParentInstanceId"] = context.WorkflowExecutionContext.Id;
-        
-        var correlationId = CorrelationId.TryGet(context);
+
+        var correlationId = CorrelationId.GetOrDefault(context);
         var workflowDispatcher = context.GetRequiredService<IWorkflowDispatcher>();
         var instanceId = (string)context.TransientProperties["ChildInstanceId"];
-        var request = new DispatchWorkflowDefinitionRequest(workflowDefinitionId, VersionOptions.Published, input, correlationId, instanceId);
-        
+        var request = new DispatchWorkflowDefinitionRequest
+        {
+            DefinitionId = workflowDefinitionId,
+            VersionOptions = VersionOptions.Published,
+            Input = input,
+            CorrelationId = correlationId,
+            InstanceId = instanceId
+        };
+
         // Dispatch the child workflow.
         await workflowDispatcher.DispatchAsync(request, context.CancellationToken);
     }
-    
+
     private async ValueTask OnChildWorkflowCompletedAsync(ActivityExecutionContext context)
     {
-        var input = context.Input;
+        var input = context.WorkflowInput;
         context.Set(Result, input);
         await context.CompleteActivityAsync();
     }

@@ -1,37 +1,30 @@
-using System.Text.Json;
 using Elsa.Abstractions;
-using Elsa.Common.Models;
-using Elsa.Workflows.Api.Models;
-using Elsa.Workflows.Core.Serialization;
 using Elsa.Workflows.Management.Contracts;
 using Elsa.Workflows.Management.Mappers;
-using Elsa.Workflows.Management.Materializers;
 using Elsa.Workflows.Management.Models;
-using Elsa.Workflows.Runtime.Contracts;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Api.Endpoints.WorkflowDefinitions.Import;
 
 /// <summary>
 /// Imports a JSON file containing a workflow definition.
 /// </summary>
-internal class Import : ElsaEndpoint<WorkflowDefinitionRequest, WorkflowDefinitionResponse>
+[PublicAPI]
+internal class Import : ElsaEndpoint<WorkflowDefinitionModel, WorkflowDefinitionModel>
 {
-    private readonly SerializerOptionsProvider _serializerOptionsProvider;
-    private readonly IWorkflowDefinitionPublisher _workflowDefinitionPublisher;
     private readonly IWorkflowDefinitionService _workflowDefinitionService;
-    private readonly VariableDefinitionMapper _variableDefinitionMapper;
+    private readonly IWorkflowDefinitionImporter _workflowDefinitionImporter;
+    private readonly WorkflowDefinitionMapper _workflowDefinitionMapper;
 
     /// <inheritdoc />
     public Import(
-        SerializerOptionsProvider serializerOptionsProvider,
-        IWorkflowDefinitionPublisher workflowDefinitionPublisher,
         IWorkflowDefinitionService workflowDefinitionService,
-        VariableDefinitionMapper variableDefinitionMapper)
+        IWorkflowDefinitionImporter workflowDefinitionImporter,
+        WorkflowDefinitionMapper workflowDefinitionMapper)
     {
-        _serializerOptionsProvider = serializerOptionsProvider;
-        _workflowDefinitionPublisher = workflowDefinitionPublisher;
         _workflowDefinitionService = workflowDefinitionService;
-        _variableDefinitionMapper = variableDefinitionMapper;
+        _workflowDefinitionImporter = workflowDefinitionImporter;
+        _workflowDefinitionMapper = workflowDefinitionMapper;
     }
 
     /// <inheritdoc />
@@ -43,69 +36,36 @@ internal class Import : ElsaEndpoint<WorkflowDefinitionRequest, WorkflowDefiniti
     }
 
     /// <inheritdoc />
-    public override async Task HandleAsync(WorkflowDefinitionRequest request, CancellationToken cancellationToken)
+    public override async Task HandleAsync(WorkflowDefinitionModel model, CancellationToken cancellationToken)
     {
-        var definitionId = request.DefinitionId;
+        var definitionId = model.DefinitionId;
+        var isNew = string.IsNullOrWhiteSpace(definitionId);
 
-        // Get a workflow draft version.
-        var draft = !string.IsNullOrWhiteSpace(definitionId)
-            ? await _workflowDefinitionPublisher.GetDraftAsync(definitionId, VersionOptions.Latest, cancellationToken)
-            : default;
-
-        var isNew = draft == null;
-
-        // Create a new workflow in case no existing definition was found.
-        if (isNew)
+        // Import workflow
+        var saveWorkflowRequest = new SaveWorkflowDefinitionRequest
         {
-            draft = _workflowDefinitionPublisher.New();
+            Model = model,
+            Publish = false,
+        };
+        
+        var result = await _workflowDefinitionImporter.ImportAsync(saveWorkflowRequest, cancellationToken);
 
-            if (!string.IsNullOrWhiteSpace(definitionId))
-                draft.DefinitionId = definitionId;
+        if (!result.Succeeded)
+        {
+            foreach (var validationError in result.ValidationErrors) 
+                AddError(validationError.Message);
+
+            await SendErrorsAsync(400, cancellationToken);
+            return;
         }
 
-        // Update the draft with the received model.
-        var root = request.Root;
-        var serializerOptions = _serializerOptionsProvider.CreateApiOptions();
-        var stringData = JsonSerializer.Serialize(root, serializerOptions);
-        var variables = _variableDefinitionMapper.Map(request.Variables).ToList();
-
-        draft!.StringData = stringData;
-        draft.MaterializerName = JsonWorkflowMaterializer.MaterializerName;
-        draft.Name = request.Name?.Trim();
-        draft.Description = request.Description?.Trim();
-        draft.CustomProperties = request.CustomProperties ?? new Dictionary<string, object>();
-        draft.Variables = variables;
-        draft.Inputs = request.Inputs ?? new List<InputDefinition>();
-        draft.Outputs = request.Outputs ?? new List<OutputDefinition>();
-        draft.Outcomes = request.Outcomes ?? new List<string>();
-        draft.Options = request.Options;
-        draft.UsableAsActivity = request.UsableAsActivity;
-        draft = request.Publish ? await _workflowDefinitionPublisher.PublishAsync(draft, cancellationToken) : await _workflowDefinitionPublisher.SaveDraftAsync(draft, cancellationToken);
-
-        // Materialize the workflow definition for serialization.
-        var workflow = await _workflowDefinitionService.MaterializeWorkflowAsync(draft, cancellationToken);
-
-        var response = new WorkflowDefinitionResponse(
-            draft.Id,
-            draft.DefinitionId,
-            draft.Name,
-            draft.Description,
-            draft.CreatedAt,
-            draft.Version,
-            request.Variables ?? new List<VariableDefinition>(),
-            draft.Inputs,
-            draft.Outputs,
-            draft.Outcomes,
-            draft.CustomProperties,
-            draft.IsLatest,
-            draft.IsPublished,
-            draft.UsableAsActivity,
-            workflow.Root,
-            draft.Options);
+        // Map the workflow definition for serialization.
+        var definition = result.WorkflowDefinition;
+        var updatedModel = await _workflowDefinitionMapper.MapAsync(definition, cancellationToken);
 
         if (isNew)
-            await SendCreatedAtAsync<Get.Get>(new { DefinitionId = definitionId }, response, cancellation: cancellationToken);
+            await SendCreatedAtAsync<GetByDefinitionId.GetByDefinitionId>(new { DefinitionId = definitionId }, updatedModel, cancellation: cancellationToken);
         else
-            await SendOkAsync(response, cancellationToken);
+            await SendOkAsync(updatedModel, cancellationToken);
     }
 }

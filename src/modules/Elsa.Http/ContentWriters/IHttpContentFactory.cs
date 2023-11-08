@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using System.Net.Http;
+
 namespace Elsa.Http.ContentWriters;
 
 /// <summary>
@@ -8,7 +11,7 @@ public interface IHttpContentFactory
     /// <summary>
     /// Returns a value indicating whether this factory supports the specified content type.
     /// </summary>
-    bool SupportsContentType(string contentType);
+    IEnumerable<string> SupportedContentTypes { get; }
     
     /// <summary>
     /// Creates a concrete <see cref="HttpContent"/> derivative based on the specified content type.

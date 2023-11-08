@@ -15,7 +15,11 @@ RUN npm --version
 
 # restore packages
 COPY src/. ./src
+COPY ./NuGet.Config ./
 COPY *.props ./
+
+# Restore packages.
+RUN dotnet restore "./src/bundles/ElsaStudioWebAssembly/ElsaStudioWebAssembly.csproj"
 RUN dotnet restore "./src/bundles/Elsa.AllInOne.Web/Elsa.AllInOne.Web.csproj"
 
 # build and publish (UseAppHost=false creates platform independent binaries)

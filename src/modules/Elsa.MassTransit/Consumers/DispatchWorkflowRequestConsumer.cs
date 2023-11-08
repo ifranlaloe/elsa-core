@@ -1,5 +1,6 @@
 using Elsa.MassTransit.Messages;
 using Elsa.Workflows.Runtime.Contracts;
+using Elsa.Workflows.Runtime.Options;
 using MassTransit;
 
 namespace Elsa.MassTransit.Consumers;
@@ -7,16 +8,16 @@ namespace Elsa.MassTransit.Consumers;
 /// <summary>
 /// A consumer of various dispatch message types to asynchronously execute workflows.
 /// </summary>
-public class DispatchWorkflowRequestConsumer : 
-    IConsumer<DispatchWorkflowDefinition>, 
-    IConsumer<DispatchWorkflowInstance>, 
+public class DispatchWorkflowRequestConsumer :
+    IConsumer<DispatchWorkflowDefinition>,
+    IConsumer<DispatchWorkflowInstance>,
     IConsumer<DispatchTriggerWorkflows>,
     IConsumer<DispatchResumeWorkflows>
 {
     private readonly IWorkflowRuntime _workflowRuntime;
 
     /// <summary>
-    /// Constructor.
+    /// Initializes a new instance of the <see cref="DispatchWorkflowRequestConsumer"/> class.
     /// </summary>
     public DispatchWorkflowRequestConsumer(IWorkflowRuntime workflowRuntime)
     {
@@ -27,32 +28,52 @@ public class DispatchWorkflowRequestConsumer :
     public async Task Consume(ConsumeContext<DispatchWorkflowDefinition> context)
     {
         var message = context.Message;
-        var options = new StartWorkflowRuntimeOptions(message.CorrelationId, message.Input, message.VersionOptions, InstanceId: message.InstanceId);
-            
-        await _workflowRuntime.StartWorkflowAsync(message.DefinitionId, options, context.CancellationToken);
+        var cancellationToken = context.CancellationToken;
+        var options = new StartWorkflowRuntimeOptions(message.CorrelationId, message.Input, message.VersionOptions, message.TriggerActivityId, message.InstanceId, cancellationToken);
+
+        await _workflowRuntime.TryStartWorkflowAsync(message.DefinitionId, options);
     }
 
     /// <inheritdoc />
     public async Task Consume(ConsumeContext<DispatchWorkflowInstance> context)
     {
         var message = context.Message;
-        var options = new ResumeWorkflowRuntimeOptions(message.CorrelationId, message.BookmarkId, message.ActivityId, message.Input);
-        await _workflowRuntime.ResumeWorkflowAsync(message.InstanceId, options, context.CancellationToken);
+        var cancellationToken = context.CancellationToken;
+
+        var options = new ResumeWorkflowRuntimeOptions(
+            message.CorrelationId,
+            message.BookmarkId,
+            message.ActivityId,
+            message.ActivityNodeId,
+            message.ActivityInstanceId,
+            message.ActivityHash,
+            message.Input,
+            cancellationToken);
+
+        await _workflowRuntime.ResumeWorkflowAsync(message.InstanceId, options);
     }
 
     /// <inheritdoc />
     public async Task Consume(ConsumeContext<DispatchTriggerWorkflows> context)
     {
         var message = context.Message;
-        var options = new TriggerWorkflowsRuntimeOptions(message.CorrelationId, message.Input);
-        await _workflowRuntime.TriggerWorkflowsAsync(message.ActivityTypeName, message.BookmarkPayload, options, context.CancellationToken);
+        var cancellationToken = context.CancellationToken;
+        var options = new TriggerWorkflowsOptions(message.CorrelationId, message.WorkflowInstanceId, message.ActivityInstanceId, message.Input, cancellationToken);
+        await _workflowRuntime.TriggerWorkflowsAsync(message.ActivityTypeName, message.BookmarkPayload, options);
     }
 
     /// <inheritdoc />
     public async Task Consume(ConsumeContext<DispatchResumeWorkflows> context)
     {
         var message = context.Message;
-        var options = new TriggerWorkflowsRuntimeOptions(CorrelationId: message.CorrelationId, Input: message.Input);
-        await _workflowRuntime.ResumeWorkflowsAsync(message.ActivityTypeName, message.BookmarkPayload, options, context.CancellationToken);
+        var cancellationToken = context.CancellationToken;
+
+        var options = new TriggerWorkflowsOptions(
+            correlationId: message.CorrelationId,
+            workflowInstanceId: message.WorkflowInstanceId,
+            input: message.Input,
+            cancellationTokens: cancellationToken);
+
+        await _workflowRuntime.ResumeWorkflowsAsync(message.ActivityTypeName, message.BookmarkPayload, options);
     }
 }

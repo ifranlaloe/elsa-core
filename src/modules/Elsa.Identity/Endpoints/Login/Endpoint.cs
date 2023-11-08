@@ -1,17 +1,19 @@
 ﻿using Elsa.Identity.Contracts;
 using Elsa.Identity.Models;
 using FastEndpoints;
+using JetBrains.Annotations;
 
 namespace Elsa.Identity.Endpoints.Login;
 
-public class Login : Endpoint<Request, LoginResponse>
+[PublicAPI]
+internal class Login : Endpoint<Request, LoginResponse>
 {
-    private readonly ICredentialsValidator _credentialsValidator;
+    private readonly IUserCredentialsValidator _userCredentialsValidator;
     private readonly IAccessTokenIssuer _tokenIssuer;
 
-    public Login(ICredentialsValidator credentialsValidator, IAccessTokenIssuer tokenIssuer)
+    public Login(IUserCredentialsValidator userCredentialsValidator, IAccessTokenIssuer tokenIssuer)
     {
-        _credentialsValidator = credentialsValidator;
+        _userCredentialsValidator = userCredentialsValidator;
         _tokenIssuer = tokenIssuer;
     }
 
@@ -25,7 +27,7 @@ public class Login : Endpoint<Request, LoginResponse>
     /// <inheritdoc />
     public override async Task<LoginResponse> ExecuteAsync(Request request, CancellationToken cancellationToken)
     {
-        var user = await _credentialsValidator.ValidateAsync(request.Username.Trim(), request.Password.Trim(), cancellationToken);
+        var user = await _userCredentialsValidator.ValidateAsync(request.Username.Trim(), request.Password.Trim(), cancellationToken);
 
         if (user == null)
             return new LoginResponse(false, null, null);

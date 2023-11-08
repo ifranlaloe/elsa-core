@@ -1,6 +1,8 @@
 using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using Elsa.Workflows.Core.Attributes;
-using Elsa.Workflows.Core.Models;
+using Elsa.Workflows.Core.Exceptions;
+using JetBrains.Annotations;
 
 namespace Elsa.Workflows.Core.Activities;
 
@@ -9,15 +11,16 @@ namespace Elsa.Workflows.Core.Activities;
 /// </summary>
 [Browsable(false)]
 [Activity("Elsa", "System", "A placeholder activity that will be used in case a workflow definition references an activity type that cannot be found.")]
+[PublicAPI]
 public class NotFoundActivity : CodeActivity
 {
     /// <inheritdoc />
-    public NotFoundActivity()
+    public NotFoundActivity([CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : base(source, line)
     {
     }
 
     /// <inheritdoc />
-    public NotFoundActivity(string missingTypeName)
+    public NotFoundActivity(string missingTypeName, [CallerFilePath] string? source = default, [CallerLineNumber] int? line = default) : this(source, line)
     {
         MissingTypeName = missingTypeName;
     }
@@ -31,4 +34,15 @@ public class NotFoundActivity : CodeActivity
     /// The version of the missing activity type.
     /// </summary>
     public int MissingTypeVersion { get; set; }
+
+    /// <summary>
+    /// The original activity JSON.
+    /// </summary>
+    public string OriginalActivityJson { get; set; } = default!;
+
+    /// <inheritdoc />
+    protected override void Execute(ActivityExecutionContext context)
+    {
+        throw new ActivityNotFoundException(MissingTypeName, MissingTypeVersion);
+    }
 }
